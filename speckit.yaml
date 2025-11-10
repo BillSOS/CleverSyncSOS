@@ -1,0 +1,250 @@
+# SpecKit Manifest for CleverSyncSOS
+# Generated: 2025-11-10
+# Phase: Stage 1 - Core Implementation
+# Version: 1.0.0
+
+project:
+  name: CleverSyncSOS
+  version: 1.0.0
+  phase: 1
+  target: visual-studio-solution
+  format: dotnet-console
+  dotnet_version: 9.0
+  owner: Bill Martin
+
+source_documents:
+  constitution:
+    path: SpecKit/Constitution/constitution.md
+    version: 1.1.0
+    type: constitution
+
+  specs:
+    - path: SpecKit/Specs/001-clever-api-auth/spec-1.md
+      version: 1.0.0
+      type: spec
+      title: Clever API Authentication and Connection
+
+  plans:
+    - path: SpecKit/Plans/001-clever-api-auth/plan.md
+      version: 1.0.0
+      type: plan
+      title: Clever API Authentication and Connection
+      branch: 001-clever-api-auth
+      date: 2025-11-08
+
+implementation_traceability:
+  # Configuration Models
+  - file: src/CleverSyncSOS.Core/Configuration/CleverAuthConfiguration.cs
+    source: SpecKit/Specs/001-clever-api-auth/spec-1.md
+    section: FR-007 Configuration
+    requirements:
+      - FR-007: Externally configurable retry intervals, timeouts, and endpoints
+    phase: Core Implementation
+
+  - file: src/CleverSyncSOS.Core/Configuration/CleverAuthToken.cs
+    source: SpecKit/Specs/001-clever-api-auth/spec-1.md
+    section: FR-003 Token Management
+    requirements:
+      - FR-003: Cache tokens in memory
+      - FR-003: Refresh tokens proactively at 75% of their lifetime
+      - FR-003: Prevent expired token usage
+    phase: Core Implementation
+
+  # Authentication Components
+  - file: src/CleverSyncSOS.Core/Authentication/ICredentialStore.cs
+    source: SpecKit/Specs/001-clever-api-auth/spec-1.md
+    section: FR-002 Credential Storage
+    requirements:
+      - FR-002: Store credentials in Azure Key Vault
+      - FR-002: Retrieve secrets using Azure managed identity
+    phase: Core Implementation
+
+  - file: src/CleverSyncSOS.Core/Authentication/AzureKeyVaultCredentialStore.cs
+    source: SpecKit/Specs/001-clever-api-auth/spec-1.md
+    section: FR-002 Credential Storage, FR-011 Security
+    requirements:
+      - FR-002: Store Client ID and Client Secret in Azure Key Vault
+      - FR-002: Retrieve secrets using Azure managed identity
+      - FR-011: Enforce TLS 1.2+
+      - FR-011: No credentials stored in code or config files
+      - FR-011: Audit Key Vault access
+    phase: Core Implementation
+
+  - file: src/CleverSyncSOS.Core/Authentication/ICleverAuthenticationService.cs
+    source: SpecKit/Specs/001-clever-api-auth/spec-1.md
+    section: FR-001 OAuth Authentication, FR-003 Token Management
+    requirements:
+      - FR-001: Authenticate using OAuth 2.0 client credentials flow
+      - FR-003: Token lifecycle management
+      - FR-005: Health check requirements
+    phase: Core Implementation
+
+  - file: src/CleverSyncSOS.Core/Authentication/CleverAuthenticationService.cs
+    source: SpecKit/Specs/001-clever-api-auth/spec-1.md
+    section: FR-001, FR-003, FR-004, FR-008, FR-011
+    requirements:
+      - FR-001: OAuth 2.0 client credentials flow
+      - FR-003: Cache tokens in memory and refresh proactively
+      - FR-004: Retry up to 5 times with exponential backoff
+      - FR-008: Detect and handle HTTP 429 responses
+      - FR-011: Enforce TLS 1.2+
+      - NFR-001: Authentication within 5 seconds
+    phase: Core Implementation
+
+  # Health Check Components
+  - file: src/CleverSyncSOS.Core/Health/AuthenticationHealthStatus.cs
+    source: SpecKit/Specs/001-clever-api-auth/spec-1.md
+    section: FR-005 Health Check Endpoint
+    requirements:
+      - FR-005: Return last successful authentication timestamp
+      - FR-005: Return error status
+    phase: Health & Observability (Stage 3)
+    note: Placeholder for Stage 3 implementation
+
+  # Infrastructure
+  - file: src/CleverSyncSOS.Infrastructure/Extensions/ServiceCollectionExtensions.cs
+    source: SpecKit/Plans/001-clever-api-auth/plan.md
+    constitution: SpecKit/Constitution/constitution.md
+    section: Development Standards
+    requirements:
+      - Constitution: Dependency injection for all services
+      - FR-004: Exponential backoff with Polly
+      - FR-011: TLS 1.2+ enforcement
+    phase: Core Implementation
+
+  # Console Application
+  - file: src/CleverSyncSOS.Console/Program.cs
+    source: SpecKit/Plans/001-clever-api-auth/plan.md
+    section: Stage 1 - Azure Function with Clever Authentication
+    requirements:
+      - FR-001: OAuth authentication demonstration
+      - FR-007: Configuration management
+      - Constitution: Dependency injection
+    phase: Core Implementation
+
+  - file: src/CleverSyncSOS.Console/appsettings.json
+    source: SpecKit/Specs/001-clever-api-auth/spec-1.md
+    section: FR-007 Configuration
+    requirements:
+      - FR-007: Externally configurable settings
+    phase: Core Implementation
+
+  # Tests
+  - file: tests/CleverSyncSOS.Core.Tests/Configuration/CleverAuthTokenTests.cs
+    source: SpecKit/Specs/001-clever-api-auth/spec-1.md
+    section: FR-003 Token Management
+    type: unit-test
+    tests:
+      - Token expiration detection
+      - Proactive refresh at 75% threshold
+      - Lifetime calculation
+
+  - file: tests/CleverSyncSOS.Core.Tests/Authentication/CleverAuthenticationServiceTests.cs
+    source: SpecKit/Specs/001-clever-api-auth/spec-1.md
+    section: FR-001, FR-003, FR-004, FR-008
+    type: unit-test
+    tests:
+      - OAuth authentication flow
+      - Token caching
+      - Retry logic with exponential backoff
+      - Rate limiting detection
+      - Error tracking
+
+  - file: tests/CleverSyncSOS.Integration.Tests/AuthenticationIntegrationTests.cs
+    source: SpecKit/Specs/001-clever-api-auth/spec-1.md
+    section: FR-001, FR-002, FR-007
+    type: integration-test
+    tests:
+      - Service registration and DI
+      - Configuration binding
+      - HTTP client configuration
+      - End-to-end authentication (optional)
+
+acceptance_criteria:
+  - criterion: Solution builds without errors in Visual Studio 2022+
+    status: pending_verification
+    file: CleverSyncSOS.sln
+
+  - criterion: Each module has inline comments referencing source markdown
+    status: completed
+    verification: All generated files include SpecKit YAML frontmatter and source references
+
+  - criterion: Includes SpecKit-compatible YAML frontmatter in all generated code files
+    status: completed
+    verification: All .cs files have YAML frontmatter with source traceability
+
+  - criterion: Includes README.md with build/run instructions
+    status: completed
+    file: README.md
+
+  - criterion: Includes speckit.yaml manifest for traceability
+    status: completed
+    file: speckit.yaml
+
+constitution_alignment:
+  security_first:
+    - OAuth tokens stored in Azure Key Vault
+    - Managed identity for credential access
+    - TLS 1.2+ enforced
+    - No secrets in code or configuration files
+
+  scalability:
+    - Token refresh supports multi-school deployments
+    - HTTP connection pooling
+    - Configurable retry behavior
+
+  isolation:
+    - Authentication service is modular and scoped per tenant
+
+  observability:
+    - Structured logging via ILogger
+    - Health status tracking
+    - Application Insights integration (Stage 3)
+
+  configurability:
+    - Retry intervals externally configurable
+    - Timeouts externally configurable
+    - Endpoints externally configurable
+
+  compatibility:
+    - Handles Clever API versioning
+    - Rate limit detection and handling
+
+technical_foundation:
+  framework: .NET 9
+  language: C#
+  cloud: Microsoft Azure
+  packages:
+    - Azure.Security.KeyVault.Secrets: 4.8.0
+    - Azure.Identity: 1.17.0
+    - Microsoft.Extensions.Http: 9.0.10
+    - Microsoft.Extensions.Options: 9.0.10
+    - Microsoft.Extensions.Http.Polly: 9.0.10
+    - Microsoft.Extensions.Hosting: 9.0.10
+    - Microsoft.ApplicationInsights: 2.23.0
+  test_frameworks:
+    - xUnit
+    - Moq: 4.20.72
+
+development_standards:
+  - .NET coding conventions
+  - Async/await patterns
+  - Dependency injection
+  - Configuration via appsettings.json and environment variables
+  - Structured logging via ILogger
+  - Automated tests for core logic
+  - Nullable reference types enabled
+
+next_steps:
+  - Verify solution builds without errors
+  - Stage 2: Implement Clever-to-Azure Database Sync
+  - Stage 3: Implement Health Check Endpoints
+  - Configure CI/CD pipeline
+  - Deploy to Azure environment
+
+metadata:
+  generated_by: Claude Code (Anthropic)
+  generated_date: 2025-11-10
+  speckit_version: 1.0.0
+  total_files_generated: 16
+  lines_of_code: ~1500
