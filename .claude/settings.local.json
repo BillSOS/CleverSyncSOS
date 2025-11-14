@@ -11,7 +11,22 @@
       "Bash(del srcCleverSyncSOS.CoreClass1.cs)",
       "Bash(del srcCleverSyncSOS.InfrastructureClass1.cs)",
       "Bash(rm:*)",
-      "Bash(dotnet test:*)"
+      "Bash(dotnet test:*)",
+      "Bash(dotnet ef migrations add:*)",
+      "Bash(dotnet ef migrations:*)",
+      "Bash(dotnet run:*)",
+      "Bash(./CleverSyncSOS.Console.exe)",
+      "Bash(dotnet ef database update:*)",
+      "Bash(az keyvault secret show:*)",
+      "Bash(dotnet ef dbcontext info:*)",
+      "Bash(az keyvault secret set:*)",
+      "Bash(dotnet clean:*)",
+      "WebFetch(domain:dev.clever.com)",
+      "Bash(curl:*)",
+      "Bash(python:*)",
+      "Bash(timeout 60 bash:*)",
+      "Bash(dotnet restore:*)",
+      "Bash(pkill:*)"
     ],
     "deny": [],
     "ask": []

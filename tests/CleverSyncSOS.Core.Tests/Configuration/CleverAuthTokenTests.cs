@@ -175,4 +175,114 @@ public class CleverAuthTokenTests
         // Assert - Should be approximately 30 minutes remaining
         Assert.True(timeUntilExpiration.TotalMinutes >= 29 && timeUntilExpiration.TotalMinutes <= 31);
     }
+
+    /// <summary>
+    /// Test: Non-expiring token (ExpiresIn = 0) never expires.
+    /// Source: FR-003 - Token Management, Clever district tokens
+    /// </summary>
+    [Fact]
+    public void IsExpired_WhenNonExpiringToken_ReturnsFalse()
+    {
+        // Arrange - Clever district token with ExpiresIn = 0 sentinel
+        var token = new CleverAuthToken
+        {
+            AccessToken = "district-token",
+            ExpiresIn = 0, // Sentinel: non-expiring
+            IssuedAt = DateTime.UtcNow.AddDays(-365) // Even a year ago
+        };
+
+        // Act
+        var isExpired = token.IsExpired;
+
+        // Assert
+        Assert.False(isExpired);
+    }
+
+    /// <summary>
+    /// Test: Non-expiring token (ExpiresIn = 0) never needs refresh.
+    /// Source: FR-003 - Token Management, Clever district tokens
+    /// </summary>
+    [Fact]
+    public void ShouldRefresh_WhenNonExpiringToken_ReturnsFalse()
+    {
+        // Arrange - Clever district token with ExpiresIn = 0 sentinel
+        var token = new CleverAuthToken
+        {
+            AccessToken = "district-token",
+            ExpiresIn = 0, // Sentinel: non-expiring
+            IssuedAt = DateTime.UtcNow.AddYears(-1) // Even a year ago
+        };
+
+        // Act
+        var shouldRefresh = token.ShouldRefresh(75.0);
+
+        // Assert
+        Assert.False(shouldRefresh);
+    }
+
+    /// <summary>
+    /// Test: Non-expiring token ExpiresAt returns DateTime.MaxValue.
+    /// Source: FR-003 - Token Management, Clever district tokens
+    /// </summary>
+    [Fact]
+    public void ExpiresAt_WhenNonExpiringToken_ReturnsMaxValue()
+    {
+        // Arrange - Clever district token with ExpiresIn = 0 sentinel
+        var token = new CleverAuthToken
+        {
+            AccessToken = "district-token",
+            ExpiresIn = 0, // Sentinel: non-expiring
+            IssuedAt = DateTime.UtcNow
+        };
+
+        // Act
+        var expiresAt = token.ExpiresAt;
+
+        // Assert
+        Assert.Equal(DateTime.MaxValue, expiresAt);
+    }
+
+    /// <summary>
+    /// Test: Non-expiring token TimeUntilExpiration returns TimeSpan.MaxValue.
+    /// Source: FR-003 - Token Management, Clever district tokens
+    /// </summary>
+    [Fact]
+    public void TimeUntilExpiration_WhenNonExpiringToken_ReturnsMaxValue()
+    {
+        // Arrange - Clever district token with ExpiresIn = 0 sentinel
+        var token = new CleverAuthToken
+        {
+            AccessToken = "district-token",
+            ExpiresIn = 0, // Sentinel: non-expiring
+            IssuedAt = DateTime.UtcNow
+        };
+
+        // Act
+        var timeUntilExpiration = token.TimeUntilExpiration;
+
+        // Assert
+        Assert.Equal(TimeSpan.MaxValue, timeUntilExpiration);
+    }
+
+    /// <summary>
+    /// Test: Negative ExpiresIn also treated as non-expiring.
+    /// Source: FR-003 - Token Management
+    /// </summary>
+    [Fact]
+    public void IsExpired_WhenNegativeExpiresIn_ReturnsFalse()
+    {
+        // Arrange - Defensive test for negative values
+        var token = new CleverAuthToken
+        {
+            AccessToken = "test-token",
+            ExpiresIn = -1, // Edge case: negative value
+            IssuedAt = DateTime.UtcNow
+        };
+
+        // Act
+        var isExpired = token.IsExpired;
+
+        // Assert
+        Assert.False(isExpired);
+    }
 }

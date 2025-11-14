@@ -32,6 +32,7 @@ public class CleverAuthToken
     /// <summary>
     /// Token expiration time in seconds from issuance.
     /// Source: FR-003 - Token lifetime tracking
+    /// Note: A value of 0 or less indicates a non-expiring token (e.g., Clever district tokens).
     /// </summary>
     public int ExpiresIn { get; set; }
 
@@ -44,23 +45,30 @@ public class CleverAuthToken
     /// <summary>
     /// Calculates the absolute expiration time of the token.
     /// Source: FR-003 - Prevent expired token usage
+    /// Note: Returns DateTime.MaxValue for non-expiring tokens (ExpiresIn <= 0).
     /// </summary>
-    public DateTime ExpiresAt => IssuedAt.AddSeconds(ExpiresIn);
+    public DateTime ExpiresAt => ExpiresIn > 0 ? IssuedAt.AddSeconds(ExpiresIn) : DateTime.MaxValue;
 
     /// <summary>
     /// Determines if the token is expired.
     /// Source: FR-003 - Prevent expired token usage
+    /// Note: Non-expiring tokens (ExpiresIn <= 0) never expire.
     /// </summary>
-    public bool IsExpired => DateTime.UtcNow >= ExpiresAt;
+    public bool IsExpired => ExpiresIn > 0 && DateTime.UtcNow >= ExpiresAt;
 
     /// <summary>
     /// Determines if the token should be refreshed based on the threshold percentage.
     /// Source: FR-003 - Refresh tokens proactively at 75% of their lifetime
+    /// Note: Non-expiring tokens (ExpiresIn <= 0) never need refresh.
     /// </summary>
     /// <param name="thresholdPercent">Percentage of lifetime at which to refresh (default 75%)</param>
     /// <returns>True if the token should be refreshed</returns>
     public bool ShouldRefresh(double thresholdPercent = 75.0)
     {
+        // Non-expiring tokens never need refresh
+        if (ExpiresIn <= 0)
+            return false;
+
         if (IsExpired)
             return true;
 
@@ -74,6 +82,7 @@ public class CleverAuthToken
     /// <summary>
     /// Gets the remaining time until token expiration.
     /// Source: FR-003 - Token Management
+    /// Note: Returns TimeSpan.MaxValue for non-expiring tokens (ExpiresIn <= 0).
     /// </summary>
-    public TimeSpan TimeUntilExpiration => ExpiresAt - DateTime.UtcNow;
+    public TimeSpan TimeUntilExpiration => ExpiresIn > 0 ? ExpiresAt - DateTime.UtcNow : TimeSpan.MaxValue;
 }

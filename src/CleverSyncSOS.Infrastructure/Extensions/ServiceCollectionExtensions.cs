@@ -9,7 +9,12 @@
 // ---
 
 using CleverSyncSOS.Core.Authentication;
+using CleverSyncSOS.Core.CleverApi;
 using CleverSyncSOS.Core.Configuration;
+using CleverSyncSOS.Core.Database.SchoolDb;
+using CleverSyncSOS.Core.Database.SessionDb;
+using CleverSyncSOS.Core.Sync;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Polly;
@@ -44,8 +49,9 @@ public static class ServiceCollectionExtensions
         // FR-001, FR-003: OAuth authentication service with token management
         services.AddSingleton<ICleverAuthenticationService, CleverAuthenticationService>();
 
-        // FR-004: Configure HTTP client with Polly retry policy
+        // FR-004: Configure HTTP client
         // Plan: IHttpClientFactory with typed clients
+        // Note: Retry logic is handled in CleverAuthenticationService, not via Polly
         services.AddHttpClient("CleverAuth")
             .ConfigureHttpClient((sp, client) =>
             {
@@ -65,8 +71,7 @@ public static class ServiceCollectionExtensions
                                    System.Security.Authentication.SslProtocols.Tls13
                 };
                 return handler;
-            })
-            .AddPolicyHandler(GetRetryPolicy());
+            });
 
         return services;
     }
@@ -109,6 +114,76 @@ public static class ServiceCollectionExtensions
         {
             options.ConnectionString = configuration["ApplicationInsights:ConnectionString"];
         });
+
+        return services;
+    }
+
+    /// <summary>
+    /// Adds Clever API client services to the dependency injection container.
+    /// Source: Stage 2 - FR-012 through FR-022 (Database Sync)
+    /// Handles data retrieval from Clever API with pagination, rate limiting, and retries.
+    /// </summary>
+    public static IServiceCollection AddCleverApiClient(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        // FR-020: Configuration for Clever API settings
+        services.Configure<CleverApiConfiguration>(
+            configuration.GetSection("CleverApi"));
+
+        // FR-012: Configure HTTP client for Clever API
+        // FR-018: Retry logic with exponential backoff
+        services.AddHttpClient<ICleverApiClient, CleverApiClient>()
+            .ConfigureHttpClient((sp, client) =>
+            {
+                var config = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<CleverApiConfiguration>>().Value;
+                client.BaseAddress = new Uri(config.BaseUrl);
+                client.Timeout = TimeSpan.FromSeconds(config.TimeoutSeconds);
+            })
+            .ConfigurePrimaryHttpMessageHandler(() =>
+            {
+                // FR-011: Enforce TLS 1.2+
+                var handler = new HttpClientHandler
+                {
+                    SslProtocols = System.Security.Authentication.SslProtocols.Tls12 |
+                                   System.Security.Authentication.SslProtocols.Tls13
+                };
+                return handler;
+            });
+
+        return services;
+    }
+
+    /// <summary>
+    /// Adds database synchronization services to the dependency injection container.
+    /// Source: Stage 2 - FR-012 through FR-025 (Database Sync)
+    /// Registers SessionDb, SchoolDb factory, and SyncService for orchestration.
+    /// </summary>
+    public static IServiceCollection AddCleverSync(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        // Register SessionDb (orchestration database)
+        // Connection string: CleverSyncSOS:SessionDb:ConnectionString
+        var sessionDbConnectionString = configuration.GetConnectionString("SessionDb");
+        if (string.IsNullOrEmpty(sessionDbConnectionString))
+        {
+            throw new InvalidOperationException(
+                "SessionDb connection string is not configured. " +
+                "Please set ConnectionStrings:SessionDb in appsettings.json or environment variables.");
+        }
+
+        services.AddDbContext<SessionDbContext>(options =>
+        {
+            options.UseSqlServer(sessionDbConnectionString);
+        });
+
+        // Register SchoolDatabaseConnectionFactory for per-school databases
+        // School connection strings are retrieved from Azure Key Vault via ICredentialStore
+        services.AddSingleton<SchoolDatabaseConnectionFactory>();
+
+        // Register SyncService for orchestration
+        services.AddScoped<ISyncService, SyncService>();
 
         return services;
     }

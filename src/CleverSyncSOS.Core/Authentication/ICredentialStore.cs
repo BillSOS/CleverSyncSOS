@@ -32,4 +32,13 @@ public interface ICredentialStore
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>The Client Secret</returns>
     Task<string> GetClientSecretAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieves a generic secret from secure storage by secret name.
+    /// Source: FR-019 - Connection Management (Stage 2)
+    /// </summary>
+    /// <param name="secretName">The name of the secret to retrieve</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>The secret value</returns>
+    Task<string> GetSecretAsync(string secretName, CancellationToken cancellationToken = default);
 }

@@ -106,17 +106,142 @@ This specification defines the behavior, configuration, and operational guarante
 
 ---
 
-## Out of Scope
+---
 
-- No direct database access (EF Core not applicable)
-- No external REST API endpoints beyond health check
+## Stage 2: Database Synchronization
+
+### FR-012: Clever Data Retrieval [Phase: Database Sync]
+
+- Retrieve student data from Clever API `/v3.0/students` endpoint.
+- Retrieve teacher data from Clever API `/v3.0/teachers` endpoint.
+- Support pagination for large datasets (page size: 100 records).
+- Handle Clever API rate limits (respect HTTP 429 and Retry-After headers).
+
+### FR-013: Multi-District Architecture [Phase: Database Sync]
+
+- Support multiple districts, each with their own Clever credentials.
+- Store district-specific configuration in Azure Key Vault.
+- Isolate sync operations per district to prevent cross-contamination.
+
+### FR-014: Multi-School Support [Phase: Database Sync]
+
+- Retrieve schools associated with each district from Clever API.
+- Sync data for all schools within a district in parallel (max 5 concurrent).
+- Track sync status per school (timestamp, record count, errors).
+
+### FR-015: Database Schema [Phase: Database Sync]
+
+- Create `Districts` table to store district metadata.
+- Create `Schools` table with foreign key to Districts.
+- Create `Students` table with foreign key to Schools.
+- Create `Teachers` table with foreign key to Schools.
+- Create `SyncHistory` table to track sync operations.
+
+### FR-016: Data Mapping [Phase: Database Sync]
+
+- Map Clever student fields to database columns (id, name, email, grade, etc.).
+- Map Clever teacher fields to database columns (id, name, email, title, etc.).
+- Handle null/missing values gracefully with database defaults.
+- Store Clever ID as external reference for change detection.
+
+### FR-017: Incremental Sync [Phase: Database Sync]
+
+- Use Clever's `last_modified` parameter to retrieve only changed records.
+- Store last sync timestamp per school in `SyncHistory` table.
+- Perform full sync on first run, incremental thereafter.
+- Support manual full re-sync via configuration flag.
+
+### FR-018: Database Operations [Phase: Database Sync]
+
+- Use Entity Framework Core for database access.
+- Implement upsert logic (INSERT or UPDATE based on Clever ID).
+- Use transactions to ensure data consistency per school.
+- Implement retry logic for transient database failures (3 retries with exponential backoff).
+
+### FR-019: Connection Management [Phase: Database Sync]
+
+- Store database connection string in Azure Key Vault.
+- Use parameterized connection string with placeholder for password.
+- Support connection pooling for performance.
+- Validate database connectivity on startup.
+
+### FR-020: Sync Orchestration [Phase: Database Sync]
+
+- Implement timer-triggered Azure Function (default: daily at 2 AM UTC).
+- Support manual trigger via HTTP endpoint.
+- Process districts sequentially, schools within district in parallel.
+- Log start/end timestamps and record counts per sync.
+
+### FR-021: Error Handling [Phase: Database Sync]
+
+- Continue processing other schools if one school fails.
+- Log detailed error information (API errors, database errors, validation errors).
+- Send alert to Application Insights on repeated failures (3+ consecutive).
+- Implement dead letter queue for failed records (future enhancement).
+
+### FR-022: Data Validation [Phase: Database Sync]
+
+- Validate required fields before database insert (Clever ID, name, school ID).
+- Skip records with invalid data and log validation errors.
+- Track validation error count per sync in `SyncHistory`.
+
+### FR-023: Full Sync Support [Phase: Database Sync]
+
+- Support full sync (complete refresh) in addition to incremental sync.
+- Allow administrators to trigger full sync via `RequiresFullSync` flag on School entity.
+- Automatically perform full sync for new schools (no sync history).
+- Track sync type (Full, Incremental, Reconciliation) in `SyncHistory`.
+- Reset `RequiresFullSync` flag after successful full sync completion.
+
+### FR-024: Soft-Delete Handling [Phase: Database Sync]
+
+- Implement soft-delete for students/teachers during routine incremental syncs (not deleted immediately).
+- Add `IsActive` flag to Student and Teacher entities (default: true).
+- Add `DeactivatedAt` timestamp for audit trail when students/teachers are marked inactive.
+- During incremental sync: Mark records as inactive if detected as removed (future enhancement).
+- Create database indexes on `IsActive` field for query performance.
+
+### FR-025: Beginning-of-Year Sync [Phase: Database Sync]
+
+- Support beginning-of-year full refresh to handle graduated/transferred students.
+- Allow bulk setting of `RequiresFullSync` flag for all schools in a district.
+- **Hard-delete behavior**: During full sync (beginning of year):
+  - Mark all existing records as inactive temporarily
+  - Reactivate students/teachers present in Clever
+  - **Permanently delete** records that remain inactive (graduated students, resigned teachers)
+- Provides clean database state at start of each school year.
+- Historical data preserved only until next full sync (typically yearly).
+
+---
+
+## Out of Scope (Stage 2)
+
+- Section/course synchronization (deferred to Stage 3)
+- Attendance data synchronization
+- Real-time sync (batch only)
+- Custom field mapping beyond standard Clever schema
+- Multi-tenant database (one database per deployment)
+- Archiving deleted records to separate historical database
 
 ---
 
 ## Acceptance Criteria
 
-- All FR and NFR items implemented and tested
+### Stage 1 (Core Implementation)
+- All FR-001 through FR-011 implemented and tested
 - CI pipeline passes build, test, and security scan
 - Health check endpoint verified in staging
 - Logs reviewed for credential safety
+
+### Stage 2 (Database Sync)
+- All FR-012 through FR-025 implemented and tested
+- Database schema deployed to Azure SQL Database
+- Successful sync of students and teachers for multiple schools
+- Incremental sync verified with modified records
+- Full sync tested for new schools and beginning-of-year scenarios
+- Hard-delete verified during full sync (inactive students/teachers permanently removed)
+- Soft-delete handling implemented for incremental syncs
+- Error handling tested with simulated failures
+- Connection string and credentials stored in Key Vault
+- Sync history tracked and queryable with sync type (Full/Incremental/Reconciliation)
 

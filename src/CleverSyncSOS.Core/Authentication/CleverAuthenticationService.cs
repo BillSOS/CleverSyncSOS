@@ -103,6 +103,31 @@ public class CleverAuthenticationService : ICleverAuthenticationService
         string clientSecret,
         CancellationToken cancellationToken)
     {
+        // FR-002: Check if a pre-generated access token exists in Key Vault first
+        // Clever district-app tokens can be generated once in dashboard and used directly
+        try
+        {
+            var preGeneratedToken = await _credentialStore.GetSecretAsync("CleverAccessToken");
+            if (!string.IsNullOrEmpty(preGeneratedToken))
+            {
+                _logger.LogInformation("Using pre-generated Clever access token from Key Vault");
+
+                // Clever district tokens don't expire, use sentinel value 0
+                return new CleverAuthToken
+                {
+                    AccessToken = preGeneratedToken,
+                    TokenType = "Bearer",
+                    ExpiresIn = 0, // Sentinel: non-expiring token
+                    IssuedAt = DateTime.UtcNow
+                };
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "No pre-generated token found in Key Vault, falling back to OAuth flow");
+        }
+
+        // Fall back to OAuth authentication flow with retries
         Exception? lastException = null;
 
         // FR-004: Retry up to 5 times with exponential backoff (2s, 4s, 8s, 16s, 32s)
@@ -141,8 +166,9 @@ public class CleverAuthenticationService : ICleverAuthenticationService
     }
 
     /// <summary>
-    /// Performs a single authentication attempt.
-    /// Source: FR-001 - OAuth 2.0 client credentials flow
+    /// Retrieves district-app tokens from Clever API.
+    /// Source: Clever API uses district-app tokens, not OAuth client credentials flow
+    /// See: https://dev.clever.com/docs/onboarding#obtaining-district-app-tokens
     /// </summary>
     private async Task<CleverAuthToken> PerformAuthenticationAsync(
         string clientId,
@@ -152,19 +178,16 @@ public class CleverAuthenticationService : ICleverAuthenticationService
         var httpClient = _httpClientFactory.CreateClient("CleverAuth");
 
         // FR-011: Enforce TLS 1.2+ (configured in Infrastructure layer)
-        // FR-001: OAuth 2.0 client credentials - Basic authentication
+        // Clever district-app tokens use Basic authentication with GET request
+        // See: https://dev.clever.com/docs/onboarding#obtaining-district-app-tokens
         var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{clientId}:{clientSecret}"));
         httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", credentials);
 
-        // FR-001: Request token with client credentials grant type
-        var requestBody = new FormUrlEncodedContent(new Dictionary<string, string>
-        {
-            { "grant_type", "client_credentials" }
-        });
+        _logger.LogDebug("Retrieving district-app tokens from {Endpoint}", _configuration.TokenEndpoint);
+        _logger.LogDebug("Using Basic auth with clientId: {ClientIdPrefix}...", clientId.Substring(0, Math.Min(8, clientId.Length)));
 
-        _logger.LogDebug("Sending OAuth token request to {Endpoint}", _configuration.TokenEndpoint);
-
-        var response = await httpClient.PostAsync(_configuration.TokenEndpoint, requestBody, cancellationToken);
+        // GET request for district-app tokens (not OAuth flow)
+        var response = await httpClient.GetAsync(_configuration.TokenEndpoint, cancellationToken);
 
         // FR-008: Handle rate limiting
         if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
@@ -173,22 +196,61 @@ public class CleverAuthenticationService : ICleverAuthenticationService
             throw new HttpRequestException("Rate limit exceeded", null, System.Net.HttpStatusCode.TooManyRequests);
         }
 
+        // Log detailed error information for non-success responses
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError(
+                "Token retrieval failed with status {StatusCode}. Response: {ErrorContent}",
+                response.StatusCode, errorContent);
+        }
+
         response.EnsureSuccessStatusCode();
 
         var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
-        var tokenResponse = JsonSerializer.Deserialize<OAuthTokenResponse>(responseContent);
 
-        if (tokenResponse == null || string.IsNullOrEmpty(tokenResponse.AccessToken))
+        // Try parsing as standard OAuth 2.0 response first
+        try
         {
-            throw new InvalidOperationException("Invalid token response from Clever API");
+            var oauthResponse = JsonSerializer.Deserialize<OAuthTokenResponse>(responseContent);
+            if (oauthResponse != null && !string.IsNullOrEmpty(oauthResponse.AccessToken))
+            {
+                _logger.LogInformation("Retrieved OAuth token (expires in {ExpiresIn}s)", oauthResponse.ExpiresIn);
+
+                return new CleverAuthToken
+                {
+                    AccessToken = oauthResponse.AccessToken,
+                    TokenType = oauthResponse.TokenType ?? "Bearer",
+                    ExpiresIn = oauthResponse.ExpiresIn,
+                    IssuedAt = DateTime.UtcNow
+                };
+            }
+        }
+        catch (JsonException)
+        {
+            // Fall back to district token response format
         }
 
-        // FR-003: Create token with issuance timestamp for lifetime tracking
+        // Try parsing as district token response (old format)
+        var tokenResponse = JsonSerializer.Deserialize<DistrictTokenResponse>(responseContent);
+
+        if (tokenResponse == null || tokenResponse.Data == null || tokenResponse.Data.Count == 0)
+        {
+            throw new InvalidOperationException("No district tokens found for this application");
+        }
+
+        // Use the first active token
+        var firstToken = tokenResponse.Data[0];
+
+        _logger.LogInformation("Retrieved district token for district {DistrictId}",
+            firstToken.District ?? "unknown");
+
+        // Clever district tokens don't expire, use sentinel value 0
         return new CleverAuthToken
         {
-            AccessToken = tokenResponse.AccessToken,
-            TokenType = tokenResponse.TokenType ?? "Bearer",
-            ExpiresIn = tokenResponse.ExpiresIn,
+            AccessToken = firstToken.AccessToken,
+            TokenType = "Bearer",
+            ExpiresIn = 0, // Sentinel: non-expiring token
             IssuedAt = DateTime.UtcNow
         };
     }
@@ -249,8 +311,8 @@ public class CleverAuthenticationService : ICleverAuthenticationService
     }
 
     /// <summary>
-    /// OAuth token response model for JSON deserialization.
-    /// Source: FR-001 - OAuth 2.0 token response
+    /// Standard OAuth 2.0 token response model.
+    /// Used for client_credentials grant type.
     /// </summary>
     private class OAuthTokenResponse
     {
@@ -262,5 +324,34 @@ public class CleverAuthenticationService : ICleverAuthenticationService
 
         [System.Text.Json.Serialization.JsonPropertyName("expires_in")]
         public int ExpiresIn { get; set; }
+    }
+
+    /// <summary>
+    /// District token response model for JSON deserialization.
+    /// Source: Clever API GET /oauth/tokens response
+    /// See: https://dev.clever.com/docs/onboarding#obtaining-district-app-tokens
+    /// </summary>
+    private class DistrictTokenResponse
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("data")]
+        public List<DistrictToken> Data { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Individual district token model.
+    /// </summary>
+    private class DistrictToken
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("id")]
+        public string Id { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("district")]
+        public string? District { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("access_token")]
+        public string AccessToken { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("created")]
+        public string? Created { get; set; }
     }
 }

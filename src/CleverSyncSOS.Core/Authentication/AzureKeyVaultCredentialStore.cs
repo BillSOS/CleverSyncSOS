@@ -108,4 +108,29 @@ public class AzureKeyVaultCredentialStore : ICredentialStore
             throw;
         }
     }
+
+    /// <summary>
+    /// Retrieves a generic secret from Azure Key Vault by secret name.
+    /// Source: FR-019 - Connection Management (Stage 2)
+    /// </summary>
+    public async Task<string> GetSecretAsync(string secretName, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogDebug("Retrieving secret from Key Vault: {SecretName}", secretName);
+
+            var secret = await _secretClient.GetSecretAsync(
+                secretName,
+                cancellationToken: cancellationToken);
+
+            _logger.LogDebug("Successfully retrieved secret from Key Vault: {SecretName}", secretName);
+
+            return secret.Value.Value;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to retrieve secret from Key Vault. Secret: {SecretName}", secretName);
+            throw;
+        }
+    }
 }

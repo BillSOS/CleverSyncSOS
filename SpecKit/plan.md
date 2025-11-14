@@ -40,18 +40,458 @@ This feature establishes secure authentication and connection management for the
 - Token acquisition and basic refresh logic
 - Basic logging and error handling
 
-### Stage 2: Clever-to-Azure Database Sync [Phase: Future]
+### Stage 2: Clever-to-Azure Database Sync [Phase: Database Sync]
 
-**Goal**: Add full sync functionality to read data from Clever and write to Azure database
+**Goal**: Add full sync functionality to read data from Clever and write to per-school Azure databases
 
 **Scope**:
 
-- Data fetching from Clever API endpoints
-- Azure SQL Database schema and connections
+- Data fetching from Clever API endpoints (students, teachers)
+- Dual database architecture: SessionDb (orchestration) + per-school databases (data)
 - Data mapping and transformation logic
 - Sync orchestration and scheduling
 - Retry logic for API and database operations
 - Comprehensive error handling and recovery
+- Multi-district and multi-school support with data isolation
+- Incremental sync with change detection
+
+**Architecture Overview**:
+
+```
+SessionDb (Control Database)
+  └─ Tracks districts, schools, sync history
+  └─ Connection: Server=tcp:sos-northcentral.database.windows.net,1433;Initial Catalog=SessionDb;...
+
+School Databases (Per-School Data Isolation)
+  ├─ School_A_Database → Students, Teachers, Sections
+  ├─ School_B_Database → Students, Teachers, Sections
+  └─ Connection strings stored in Key Vault per school
+```
+
+**Sync Flow**:
+1. Connect to SessionDb to retrieve list of schools to sync
+2. For each school:
+   - Retrieve school-specific connection string from Key Vault
+   - Connect to that school's dedicated database
+   - Fetch data from Clever API for that school
+   - Sync students/teachers to school's database
+   - Record sync results back to SessionDb.SyncHistory
+3. Continue with next school (with data isolation guaranteed)
+
+**Implementation Approach**:
+
+#### 2.1 Database Architecture
+
+**SessionDb Schema** (Orchestration & Metadata):
+```sql
+Districts
+  ├─ DistrictId (PK, int, identity)
+  ├─ CleverDistrictId (unique, nvarchar(50))
+  ├─ Name (nvarchar(200))
+  ├─ KeyVaultSecretPrefix (nvarchar(100)) -- e.g., "District-ABC"
+  ├─ CreatedAt (datetime2)
+  └─ UpdatedAt (datetime2)
+
+Schools
+  ├─ SchoolId (PK, int, identity)
+  ├─ DistrictId (FK → Districts.DistrictId)
+  ├─ CleverSchoolId (unique, nvarchar(50))
+  ├─ Name (nvarchar(200))
+  ├─ DatabaseName (nvarchar(100)) -- e.g., "School_Lincoln_Db"
+  ├─ KeyVaultConnectionStringSecretName (nvarchar(200)) -- e.g., "School-Lincoln-ConnectionString"
+  ├─ IsActive (bit, default 1)
+  ├─ CreatedAt (datetime2)
+  └─ UpdatedAt (datetime2)
+
+SyncHistory
+  ├─ SyncId (PK, int, identity)
+  ├─ SchoolId (FK → Schools.SchoolId)
+  ├─ EntityType (nvarchar(50)) -- "Student", "Teacher", "Section"
+  ├─ SyncStartTime (datetime2)
+  ├─ SyncEndTime (datetime2, nullable)
+  ├─ Status (nvarchar(20)) -- "Success", "Failed", "Partial"
+  ├─ RecordsProcessed (int)
+  ├─ RecordsFailed (int)
+  ├─ ErrorMessage (nvarchar(max), nullable)
+  └─ LastSyncTimestamp (datetime2, nullable) -- for incremental sync
+```
+
+**Per-School Database Schema** (Student/Teacher Data):
+```sql
+Students
+  ├─ StudentId (PK, int, identity)
+  ├─ CleverStudentId (unique, nvarchar(50))
+  ├─ FirstName (nvarchar(100))
+  ├─ LastName (nvarchar(100))
+  ├─ Email (nvarchar(200), nullable)
+  ├─ Grade (nvarchar(20), nullable)
+  ├─ StudentNumber (nvarchar(50), nullable)
+  ├─ LastModifiedInClever (datetime2, nullable)
+  ├─ CreatedAt (datetime2)
+  └─ UpdatedAt (datetime2)
+
+Teachers
+  ├─ TeacherId (PK, int, identity)
+  ├─ CleverTeacherId (unique, nvarchar(50))
+  ├─ FirstName (nvarchar(100))
+  ├─ LastName (nvarchar(100))
+  ├─ Email (nvarchar(200))
+  ├─ Title (nvarchar(100), nullable)
+  ├─ LastModifiedInClever (datetime2, nullable)
+  ├─ CreatedAt (datetime2)
+  └─ UpdatedAt (datetime2)
+
+-- Future: Sections table
+```
+
+**Entity Framework Core Setup**:
+- Create `SessionDbContext` for SessionDb (Districts, Schools, SyncHistory)
+- Create `SchoolDbContext` for per-school databases (Students, Teachers)
+- Add `Microsoft.EntityFrameworkCore.SqlServer` package
+- Add `Microsoft.EntityFrameworkCore.Design` package for migrations
+- Implement separate migration paths for SessionDb vs School databases
+
+#### 2.2 Connection String Management
+
+**Key Vault Secret Structure**:
+```
+# SessionDb connection (orchestration database)
+CleverSyncSOS--SessionDb--ConnectionString: "Server=tcp:sos-northcentral.database.windows.net,1433;Initial Catalog=SessionDb;User ID=SOSAdmin;Password={password};..."
+
+# Per-school database connections
+CleverSyncSOS--School-Lincoln-ConnectionString: "Server=tcp:...;Initial Catalog=School_Lincoln_Db;..."
+CleverSyncSOS--School-Washington-ConnectionString: "Server=tcp:...;Initial Catalog=School_Washington_Db;..."
+
+# Clever API credentials per district
+CleverSyncSOS--District-ABC--ClientId: "clever_client_id_1"
+CleverSyncSOS--District-ABC--ClientSecret: "clever_secret_1"
+```
+
+**Dynamic Connection Resolution**:
+```csharp
+public class SchoolDatabaseConnectionFactory
+{
+    private readonly ICredentialStore _keyVault;
+
+    public async Task<SchoolDbContext> CreateSchoolContextAsync(School school)
+    {
+        var connectionString = await _keyVault.GetSecretAsync(
+            school.KeyVaultConnectionStringSecretName);
+
+        var options = new DbContextOptionsBuilder<SchoolDbContext>()
+            .UseSqlServer(connectionString)
+            .Options;
+
+        return new SchoolDbContext(options);
+    }
+}
+```
+
+#### 2.3 Clever API Client
+
+**Create `ICleverApiClient` Interface**:
+- `Task<CleverSchool[]> GetSchoolsAsync(string districtId)`
+- `Task<CleverStudent[]> GetStudentsAsync(string schoolId, DateTime? lastModified = null)`
+- `Task<CleverTeacher[]> GetTeachersAsync(string schoolId, DateTime? lastModified = null)`
+- `Task<CleverApiResponse<T>> GetPagedDataAsync<T>(string endpoint, int page, int pageSize)`
+
+**Implementation Details**:
+- Use `IHttpClientFactory` with typed client
+- Inject `ICleverAuthenticationService` for token management
+- Base URL: `https://api.clever.com/v3.0`
+- Implement pagination (100 records per page)
+- Handle rate limits (HTTP 429) with exponential backoff
+- Parse Clever response format: `{ data: [...], paging: {...} }`
+
+#### 2.4 Sync Service Implementation
+
+**Create `ISyncService` Interface**:
+```csharp
+public interface ISyncService
+{
+    Task SyncAllDistrictsAsync();
+    Task SyncDistrictAsync(int districtId);
+    Task SyncSchoolAsync(int schoolId, bool fullSync = false);
+    Task<SyncResult> SyncStudentsAsync(int schoolId, DateTime? lastModified = null);
+    Task<SyncResult> SyncTeachersAsync(int schoolId, DateTime? lastModified = null);
+}
+```
+
+**Orchestration Logic**:
+```csharp
+public async Task SyncAllDistrictsAsync()
+{
+    // 1. Query SessionDb for all districts
+    await using var sessionDb = _sessionDbFactory.CreateContext();
+    var districts = await sessionDb.Districts.ToListAsync();
+
+    foreach (var district in districts)
+    {
+        await SyncDistrictAsync(district.DistrictId);
+    }
+}
+
+public async Task SyncDistrictAsync(int districtId)
+{
+    await using var sessionDb = _sessionDbFactory.CreateContext();
+
+    // 2. Get all active schools in district from SessionDb
+    var schools = await sessionDb.Schools
+        .Where(s => s.DistrictId == districtId && s.IsActive)
+        .ToListAsync();
+
+    // 3. Sync schools in parallel (max 5 concurrent)
+    var semaphore = new SemaphoreSlim(5);
+    var tasks = schools.Select(async school =>
+    {
+        await semaphore.WaitAsync();
+        try
+        {
+            await SyncSchoolAsync(school.SchoolId);
+        }
+        finally
+        {
+            semaphore.Release();
+        }
+    });
+
+    await Task.WhenAll(tasks);
+}
+
+public async Task SyncSchoolAsync(int schoolId, bool fullSync = false)
+{
+    // 4. Get school info from SessionDb
+    await using var sessionDb = _sessionDbFactory.CreateContext();
+    var school = await sessionDb.Schools.FindAsync(schoolId);
+
+    // 5. Determine sync type (Full vs Incremental)
+    var lastSync = await sessionDb.SyncHistory
+        .Where(h => h.SchoolId == schoolId && h.Status == "Success")
+        .OrderByDescending(h => h.SyncEndTime)
+        .FirstOrDefaultAsync();
+
+    // Check if full sync is required
+    bool isFullSync = school.RequiresFullSync || fullSync || lastSync == null;
+    var syncType = isFullSync ? SyncType.Full : SyncType.Incremental;
+
+    var lastModified = isFullSync ? null : lastSync?.LastSyncTimestamp;
+
+    // 6. Connect to school's dedicated database
+    await using var schoolDb = await _schoolDbFactory.CreateSchoolContextAsync(school);
+
+    // 7. Sync students and teachers to school's database
+    await SyncStudentsAsync(schoolId, school, schoolDb, lastModified, syncType);
+    await SyncTeachersAsync(schoolId, school, schoolDb, lastModified, syncType);
+
+    // 8. Reset RequiresFullSync flag after successful full sync
+    if (isFullSync && school.RequiresFullSync)
+    {
+        school.RequiresFullSync = false;
+        await sessionDb.SaveChangesAsync();
+    }
+}
+
+private async Task<SyncResult> SyncStudentsAsync(
+    int schoolId,
+    School school,
+    SchoolDbContext schoolDb,
+    DateTime? lastModified,
+    SyncType syncType)
+{
+    // 8. Record sync start in SessionDb
+    var syncHistory = new SyncHistory
+    {
+        SchoolId = schoolId,
+        EntityType = "Student",
+        SyncType = syncType,
+        SyncStartTime = DateTime.UtcNow,
+        Status = "InProgress"
+    };
+    await _sessionDbFactory.CreateContext().SyncHistory.AddAsync(syncHistory);
+    await _sessionDbFactory.CreateContext().SaveChangesAsync();
+
+    try
+    {
+        // 9. If full sync, mark all existing students as inactive (soft-delete)
+        if (syncType == SyncType.Full)
+        {
+            var existingStudents = await schoolDb.Students.ToListAsync();
+            foreach (var student in existingStudents)
+            {
+                student.IsActive = false;
+                student.DeactivatedAt = DateTime.UtcNow;
+            }
+            _logger.LogInformation("Marked {Count} students as inactive for full sync", existingStudents.Count);
+        }
+
+        // 10. Fetch from Clever API
+        var cleverStudents = await _cleverClient.GetStudentsAsync(
+            school.CleverSchoolId,
+            lastModified);
+
+        // 11. Upsert to school's database
+        // For full sync: this will reactivate students still in Clever
+        // For incremental sync: this will insert new or update existing
+        foreach (var cleverStudent in cleverStudents)
+        {
+            await UpsertStudentAsync(schoolDb, cleverStudent, isActive: true);
+        }
+
+        await schoolDb.SaveChangesAsync();
+
+        // 12. Hard-delete inactive students (only for full sync - beginning of year cleanup)
+        var deletedCount = 0;
+        if (syncType == SyncType.Full)
+        {
+            var inactiveStudents = await schoolDb.Students
+                .Where(s => !s.IsActive)
+                .ToListAsync();
+
+            deletedCount = inactiveStudents.Count;
+
+            if (deletedCount > 0)
+            {
+                schoolDb.Students.RemoveRange(inactiveStudents);
+                await schoolDb.SaveChangesAsync();
+                _logger.LogInformation("Full sync: Permanently deleted {DeletedCount} students (graduated/transferred)", deletedCount);
+            }
+        }
+
+        // 13. Update sync history in SessionDb
+        syncHistory.SyncEndTime = DateTime.UtcNow;
+        syncHistory.Status = "Success";
+        syncHistory.RecordsProcessed = cleverStudents.Length;
+        syncHistory.LastSyncTimestamp = DateTime.UtcNow;
+        await _sessionDbFactory.CreateContext().SaveChangesAsync();
+
+        return new SyncResult
+        {
+            Success = true,
+            RecordsProcessed = cleverStudents.Length,
+            DeletedRecords = deletedCount
+        };
+    }
+    catch (Exception ex)
+    {
+        // 14. Record failure in SessionDb
+        syncHistory.SyncEndTime = DateTime.UtcNow;
+        syncHistory.Status = "Failed";
+        syncHistory.ErrorMessage = ex.Message;
+        await _sessionDbFactory.CreateContext().SaveChangesAsync();
+
+        _logger.LogError(ex, "Failed to sync students for school {SchoolId}", schoolId);
+        throw;
+    }
+}
+```
+
+#### 2.5 Data Mapping and Upsert Logic
+
+```csharp
+private async Task UpsertStudentAsync(SchoolDbContext schoolDb, CleverStudent cleverStudent, bool isActive = true)
+{
+    var existing = await schoolDb.Students
+        .FirstOrDefaultAsync(s => s.CleverStudentId == cleverStudent.Id);
+
+    if (existing != null)
+    {
+        // Update existing record in school's database
+        existing.FirstName = cleverStudent.Name.First;
+        existing.LastName = cleverStudent.Name.Last;
+        existing.Email = cleverStudent.Email;
+        existing.Grade = cleverStudent.Grade;
+        existing.StudentNumber = cleverStudent.StudentNumber;
+        existing.LastModifiedInClever = cleverStudent.LastModified;
+        existing.IsActive = isActive;  // Reactivate during full sync
+        existing.DeactivatedAt = isActive ? null : existing.DeactivatedAt;  // Clear deactivation if reactivated
+        existing.UpdatedAt = DateTime.UtcNow;
+    }
+    else
+    {
+        // Insert new record into school's database
+        schoolDb.Students.Add(new Student
+        {
+            CleverStudentId = cleverStudent.Id,
+            FirstName = cleverStudent.Name.First,
+            LastName = cleverStudent.Name.Last,
+            Email = cleverStudent.Email,
+            Grade = cleverStudent.Grade,
+            StudentNumber = cleverStudent.StudentNumber,
+            LastModifiedInClever = cleverStudent.LastModified,
+            IsActive = isActive,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        });
+    }
+}
+```
+
+**Sync Scenarios Handled:**
+
+1. **New School (First-Time Sync)**:
+   - No SyncHistory → triggers Full Sync
+   - All students inserted with `IsActive = true`
+   - No deletions (database is empty)
+
+2. **Beginning-of-Year (Full Sync)**:
+   - Administrator sets `School.RequiresFullSync = true`
+   - Step 1: Mark all existing students as `IsActive = false`, `DeactivatedAt = NOW()`
+   - Step 2: Fetch ALL students from Clever (no `last_modified` filter)
+   - Step 3: Upsert students in Clever (`IsActive = true`, `DeactivatedAt = null`)
+   - Step 4: **Hard-delete** students that remain `IsActive = false` (graduated/transferred)
+   - Provides clean database at start of school year
+
+3. **During School Year (Incremental Sync)**:
+   - `SyncType = Incremental`, uses `last_modified` parameter
+   - Only changed students retrieved from Clever
+   - New students inserted, existing students updated
+   - No deletion logic (students leaving handled by next full sync at beginning of year)
+
+#### 2.6 Azure Function Configuration
+
+**Timer Trigger** (Daily Sync):
+```csharp
+[Function("SyncTimerFunction")]
+public async Task Run(
+    [TimerTrigger("0 0 2 * * *")] TimerInfo timer, // Daily at 2 AM UTC
+    FunctionContext context)
+{
+    _logger.LogInformation("Starting scheduled sync at {Time}", DateTime.UtcNow);
+    await _syncService.SyncAllDistrictsAsync();
+}
+```
+
+**Manual Trigger Endpoint**:
+```csharp
+[Function("ManualSyncFunction")]
+public async Task<HttpResponseData> RunManual(
+    [HttpTrigger(AuthorizationLevel.Function, "post")] HttpRequestData req)
+{
+    var query = ParseQueryString(req.Url.Query);
+
+    if (query.TryGetValue("schoolId", out var schoolId))
+        await _syncService.SyncSchoolAsync(int.Parse(schoolId));
+    else if (query.TryGetValue("districtId", out var districtId))
+        await _syncService.SyncDistrictAsync(int.Parse(districtId));
+    else
+        await _syncService.SyncAllDistrictsAsync();
+
+    return req.CreateResponse(HttpStatusCode.OK);
+}
+```
+
+#### 2.7 Error Handling and Resilience
+
+**Polly Retry Policies**:
+- Database operations: 3 retries, exponential backoff (1s, 2s, 4s)
+- Clever API calls: 5 retries, exponential backoff (2s, 4s, 8s, 16s, 32s)
+- Per-school isolation: Failure in one school doesn't affect others
+
+**Monitoring Strategy**:
+- Log all operations to Application Insights
+- Alert on 3+ consecutive failures for same school
+- Track sync duration and record counts per school
+- Monitor Key Vault access patterns
 
 ### Stage 3: Health Check Endpoints [Phase: Health & Observability]
 
