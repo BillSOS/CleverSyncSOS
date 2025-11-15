@@ -361,3 +361,8 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Sensitive operational documentation and database scripts
+# These files may contain actual IDs, connection strings, and environment-specific data
+*.md
+*.sql

@@ -1,7 +1,7 @@
 // infra/main.bicep
 // FINAL: Deploys a single serverless Function App on a Consumption Plan, avoiding all App Service Plan quota issues.
 // Also deploys App Insights, Storage Account, and Key Vault.
-// MODIFIED: Targeting .NET 8 for compatibility check.
+// MODIFIED: Removed linuxFxVersion for Consumption Plan compatibility.
 
 @description('Deployment location')
 param location string = resourceGroup().location
@@ -51,13 +51,12 @@ resource functionApp 'Microsoft.Web/sites@2022-03-01' = {
   properties: {
     // By omitting 'serverFarmId', a serverless Consumption plan is created.
     siteConfig: {
-      // MODIFIED: Targeting .NET 8 LTS for deployment validation.
-      linuxFxVersion: 'DOTNET-ISOLATED|8.0'
+      // REMOVED: linuxFxVersion is not used for Consumption Plan; runtime is set via app settings.
       appSettings: [
         {
           name: 'FUNCTIONS_WORKER_RUNTIME'
           value: 'dotnet-isolated'
-        },
+        }
         {
           name: 'FUNCTIONS_EXTENSION_VERSION'
           value: '~4'
@@ -86,7 +85,10 @@ resource keyVault 'Microsoft.KeyVault/vaults@2022-07-01' = {
         tenantId: subscription().tenantId
         objectId: functionApp.identity.principalId
         permissions: {
-          secrets: [ 'get', 'list' ]
+          secrets: [
+            'get'
+            'list'
+          ]
         }
       }
     ]

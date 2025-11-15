@@ -1,5 +1,8 @@
 # Quick Start Guide
 
+**Version:**1.0.0
+**Last Updated:*2025-11-14
+
 ## Immediate Manual Steps Required
 
 Before you can run CleverSyncSOS, complete these steps:
@@ -14,7 +17,7 @@ Before you can run CleverSyncSOS, complete these steps:
 az keyvault secret set \
   --vault-name cleversyncsos \
   --name SessionDb-ConnectionString \
-  --value "Server=tcp:sos-northcentral.database.windows.net,1433;Initial Catalog=SessionDb;User ID=SOSAdmin;Password=YOUR_PASSWORD;Encrypt=True;"
+  --value "Server=tcp:sos-northcentral.database.windows.net,1433;Initial Catalog=SessionDb;User ID=SessionAdmin;Password=YOUR_PASSWORD;Encrypt=True;"
 ```
 
 Replace `YOUR_PASSWORD` with your actual SQL Server password.
@@ -124,7 +127,7 @@ az sql db create \
 1. Go to your SQL Server: `sos-northcentral.database.windows.net`
 2. Click "Create database"
 3. Name it: `School_YourSchoolName`
-4. Choose pricing tier: Standard S0
+4. Choose Elastic Pool: SOSPool
 
 ---
 
