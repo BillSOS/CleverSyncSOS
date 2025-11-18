@@ -102,6 +102,7 @@ resource functionAppAppSettings 'Microsoft.Web/sites/config@2022-03-01' = {
   parent: functionApp
   name: 'appsettings'
   properties: {
+    // Azure Functions runtime settings
     AzureWebJobsStorage: storageConnectionString
     WEBSITE_CONTENTAZUREFILECONNECTIONSTRING: storageConnectionString
     WEBSITE_CONTENTSHARE: toLower(functionApp.name)
@@ -109,6 +110,23 @@ resource functionAppAppSettings 'Microsoft.Web/sites/config@2022-03-01' = {
     FUNCTIONS_EXTENSION_VERSION: '~4'
     APPLICATIONINSIGHTS_CONNECTION_STRING: appInsights.properties.ConnectionString
     KEYVAULT_URI: keyVault.properties.vaultUri
+
+    // CleverAuth configuration
+    CleverAuth__KeyVaultUri: keyVault.properties.vaultUri
+    CleverAuth__TokenEndpoint: 'https://clever.com/oauth/tokens'
+    CleverAuth__MaxRetryAttempts: '5'
+    CleverAuth__InitialRetryDelaySeconds: '2'
+    CleverAuth__TokenRefreshThresholdPercent: '75.0'
+    CleverAuth__HttpTimeoutSeconds: '30'
+
+    // CleverApi configuration
+    CleverApi__BaseUrl: 'https://api.clever.com/v3.0'
+    CleverApi__PageSize: '100'
+    CleverApi__MaxRetryAttempts: '5'
+    CleverApi__InitialRetryDelaySeconds: '2'
+
+    // Database connection strings (loaded from Key Vault)
+    ConnectionStrings__SessionDb: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=SessionDb-ConnectionString)'
   }
 }
 
