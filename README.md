@@ -1,5 +1,7 @@
 # CleverSyncSOS
 
+[![CI/CD Pipeline](https://github.com/BillSOS/CleverSyncSOS/actions/workflows/cd-pipeline.yml/badge.svg)](https://github.com/BillSOS/CleverSyncSOS/actions/workflows/cd-pipeline.yml)
+
 **Version:** 1.0.0
 **Status:** ✅ **PRODUCTION READY** (All 4 Stages Complete)
 **Framework:** .NET 9.0
@@ -283,7 +285,20 @@ ORDER BY StartedAt DESC;
 
 ## Deployment
 
-### Deploy Web API (Health Checks)
+### Continuous Delivery (Recommended)
+
+**Automated CI/CD Pipeline**: This project includes a GitHub Actions workflow for continuous delivery. Every push to `master` automatically builds, tests, and deploys to Azure.
+
+See **[CICD-SETUP.md](CICD-SETUP.md)** for complete setup instructions.
+
+**Quick Setup**:
+1. Create Azure Service Principal: `az ad sp create-for-rbac --name "CleverSyncSOS-GitHub-Actions" --role Contributor --scopes /subscriptions/{subscription-id}/resourceGroups/CleverSyncSOS-rg --sdk-auth`
+2. Add `AZURE_CREDENTIALS` secret to GitHub repository
+3. Push to master - deployment happens automatically
+
+### Manual Deployment (Alternative)
+
+#### Deploy Web API (Health Checks)
 
 ```bash
 # Publish
@@ -296,7 +311,7 @@ az webapp up \
   --runtime "DOTNET:9.0"
 ```
 
-### Deploy Azure Functions (Automated Sync)
+#### Deploy Azure Functions (Automated Sync)
 
 ```bash
 # Create Function App
@@ -314,7 +329,7 @@ cd src/CleverSyncSOS.Functions
 func azure functionapp publish CleverSyncSOS-Functions
 ```
 
-### Enable Managed Identity
+#### Enable Managed Identity
 
 ```bash
 # Enable on Function App
@@ -334,7 +349,7 @@ az keyvault set-policy \
   --secret-permissions get list
 ```
 
-See **[STAGE4-AZURE-FUNCTIONS-SUMMARY.md](STAGE4-AZURE-FUNCTIONS-SUMMARY.md)** for complete deployment instructions.
+See **[STAGE4-AZURE-FUNCTIONS-SUMMARY.md](STAGE4-AZURE-FUNCTIONS-SUMMARY.md)** for complete manual deployment instructions.
 
 ---
 
@@ -384,6 +399,7 @@ dotnet test tests/CleverSyncSOS.Core.Tests/CleverSyncSOS.Core.Tests.csproj
 - **[docs/QuickStart.md](docs/QuickStart.md)** - Initial setup and configuration
 - **[docs/ConfigurationSetup.md](docs/ConfigurationSetup.md)** - Detailed configuration
 - **[docs/DatabaseMigrations.md](docs/DatabaseMigrations.md)** - Database setup
+- **[CICD-SETUP.md](CICD-SETUP.md)** - CI/CD pipeline setup and configuration
 
 ### For Developers
 - **[PROJECT-STATUS-FINAL.md](PROJECT-STATUS-FINAL.md)** - Complete project status
