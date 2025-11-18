@@ -3,6 +3,7 @@ using System.Text.Json;
 using CleverSyncSOS.Core.Authentication;
 using CleverSyncSOS.Core.CleverApi.Models;
 using CleverSyncSOS.Core.Configuration;
+using CleverSyncSOS.Core.Logging;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -235,7 +236,9 @@ public class CleverApiClient : ICleverApiClient
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to fetch data from Clever API: {Url}", url);
+                // FR-010: Sanitize URL to prevent query parameter exposure
+                var sanitizedUrl = SensitiveDataSanitizer.SanitizeUrl(url);
+                _logger.LogSanitizedError(ex, "Failed to fetch data from Clever API: {SanitizedUrl}", null, sanitizedUrl);
                 throw;
             }
         }

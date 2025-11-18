@@ -33,7 +33,15 @@
       "Bash(az keyvault show:*)",
       "Bash(az functionapp config appsettings set:*)",
       "Bash(az functionapp function list:*)",
-      "Bash(az functionapp show:*)"
+      "Bash(az functionapp show:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(az account:*)",
+      "Bash(az ad sp create-for-rbac:*)",
+      "Bash(MSYS_NO_PATHCONV=1 az ad sp create-for-rbac:*)",
+      "Bash(az functionapp config appsettings list:*)",
+      "Bash(az functionapp restart:*)"
     ],
     "deny": [],
     "ask": []

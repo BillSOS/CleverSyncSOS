@@ -1,5 +1,6 @@
 using CleverSyncSOS.Core.Authentication;
 using CleverSyncSOS.Core.Database.SessionDb.Entities;
+using CleverSyncSOS.Core.Logging;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -33,20 +34,31 @@ public class SchoolDatabaseConnectionFactory
             throw new InvalidOperationException($"School {school.Name} (ID: {school.SchoolId}) does not have a Key Vault connection string secret name configured.");
         }
 
-        _logger.LogInformation("Retrieving connection string for school {SchoolName} from Key Vault secret {SecretName}",
-            school.Name, school.KeyVaultConnectionStringSecretName);
+        // FR-010: Log secret name retrieval (safe - no connection string value)
+        _logger.LogInformation("Retrieving connection string for school {SchoolName} from Key Vault",
+            school.Name);
 
-        var connectionString = await _credentialStore.GetSecretAsync(school.KeyVaultConnectionStringSecretName);
-
-        if (string.IsNullOrEmpty(connectionString))
+        try
         {
-            throw new InvalidOperationException($"Failed to retrieve connection string for school {school.Name} from Key Vault.");
+            var connectionString = await _credentialStore.GetSecretAsync(school.KeyVaultConnectionStringSecretName);
+
+            if (string.IsNullOrEmpty(connectionString))
+            {
+                throw new InvalidOperationException($"Failed to retrieve connection string for school {school.Name} from Key Vault.");
+            }
+
+            var options = new DbContextOptionsBuilder<SchoolDbContext>()
+                .UseSqlServer(connectionString)
+                .Options;
+
+            return new SchoolDbContext(options);
         }
-
-        var options = new DbContextOptionsBuilder<SchoolDbContext>()
-            .UseSqlServer(connectionString)
-            .Options;
-
-        return new SchoolDbContext(options);
+        catch (Exception ex)
+        {
+            // FR-010: Sanitize exception to prevent connection string leakage
+            var sanitizedError = SensitiveDataSanitizer.CreateSafeErrorSummary(ex, $"School: {school.Name}");
+            _logger.LogError("Failed to create database context. {SanitizedError}", sanitizedError);
+            throw;
+        }
     }
 }

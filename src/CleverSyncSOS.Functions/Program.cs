@@ -9,6 +9,8 @@
 // ---
 
 using CleverSyncSOS.Infrastructure.Extensions;
+using CleverSyncSOS.Infrastructure.Telemetry;
+using Microsoft.ApplicationInsights.Extensibility;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Builder;
 using Microsoft.Extensions.Configuration;
@@ -19,10 +21,12 @@ var builder = FunctionsApplication.CreateBuilder(args);
 
 builder.ConfigureFunctionsWebApplication();
 
-// FR-010: Add Application Insights telemetry
+// FR-010: Add Application Insights telemetry with sanitization
 builder.Services
     .AddApplicationInsightsTelemetryWorkerService()
     .ConfigureFunctionsApplicationInsights();
+// Register sanitizing telemetry processor
+builder.Services.AddSingleton<ITelemetryProcessor, SanitizingTelemetryProcessor>();
 
 // FR-002, FR-007: Load SessionDb connection string from Azure Key Vault
 var tempConfig = builder.Configuration;

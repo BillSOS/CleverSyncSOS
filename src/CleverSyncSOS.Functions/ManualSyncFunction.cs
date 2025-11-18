@@ -9,6 +9,7 @@
 // ---
 
 using System.Net;
+using CleverSyncSOS.Core.Logging;
 using CleverSyncSOS.Core.Sync;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -94,13 +95,16 @@ public class ManualSyncFunction
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Manual Sync Function encountered an error");
+            // FR-010: Sanitize exception before logging and returning to client
+            _logger.LogSanitizedError(ex, "Manual Sync Function encountered an error");
+
+            var sanitizedError = SensitiveDataSanitizer.CreateSafeErrorSummary(ex);
 
             var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
             await errorResponse.WriteAsJsonAsync(new
             {
                 success = false,
-                error = ex.Message,
+                error = sanitizedError, // Sanitized error message
                 timestamp = DateTime.UtcNow
             });
             return errorResponse;

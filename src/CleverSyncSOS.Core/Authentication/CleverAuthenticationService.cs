@@ -12,6 +12,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using CleverSyncSOS.Core.Configuration;
+using CleverSyncSOS.Core.Logging;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -77,6 +78,12 @@ public class CleverAuthenticationService : ICleverAuthenticationService
             _lastError = null;
 
             var authDuration = (DateTime.UtcNow - authStartTime).TotalSeconds;
+
+            // FR-010: Structured logging per SpecKit Observability.md
+            _logger.LogCleverAuthTokenAcquired(
+                expiresAt: token.IssuedAt.AddSeconds(token.ExpiresIn),
+                scope: "district");
+
             _logger.LogInformation(
                 "Successfully authenticated with Clever API in {Duration:F2}s. Token expires in {ExpiresIn}s",
                 authDuration, token.ExpiresIn);
@@ -89,7 +96,7 @@ public class CleverAuthenticationService : ICleverAuthenticationService
             _lastError = ex.Message;
 
             // FR-010: Structured logging with sanitization
-            _logger.LogError(ex, "Failed to authenticate with Clever API");
+            _logger.LogCleverAuthFailure(ex, retryCount: 0);
             throw;
         }
     }
@@ -150,8 +157,9 @@ public class CleverAuthenticationService : ICleverAuthenticationService
 
                 // FR-004: Calculate exponential backoff delay
                 var delaySeconds = _configuration.InitialRetryDelaySeconds * Math.Pow(2, attempt);
-                _logger.LogWarning(ex,
+                _logger.LogSanitizedWarning(
                     "Authentication attempt {Attempt} failed. Retrying in {Delay}s",
+                    null, // correlationId
                     attempt + 1, delaySeconds);
 
                 await Task.Delay(TimeSpan.FromSeconds(delaySeconds), cancellationToken);
@@ -159,8 +167,10 @@ public class CleverAuthenticationService : ICleverAuthenticationService
         }
 
         // All retries exhausted
-        _logger.LogError(lastException, "Authentication failed after {MaxAttempts} attempts",
-            _configuration.MaxRetryAttempts);
+        if (lastException != null)
+        {
+            _logger.LogCleverAuthFailure(lastException, _configuration.MaxRetryAttempts);
+        }
         throw new InvalidOperationException(
             $"Failed to authenticate after {_configuration.MaxRetryAttempts} attempts", lastException);
     }
@@ -184,7 +194,7 @@ public class CleverAuthenticationService : ICleverAuthenticationService
         httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", credentials);
 
         _logger.LogDebug("Retrieving district-app tokens from {Endpoint}", _configuration.TokenEndpoint);
-        _logger.LogDebug("Using Basic auth with clientId: {ClientIdPrefix}...", clientId.Substring(0, Math.Min(8, clientId.Length)));
+        // FR-010: REMOVED client ID logging to prevent credential leakage
 
         // GET request for district-app tokens (not OAuth flow)
         var response = await httpClient.GetAsync(_configuration.TokenEndpoint, cancellationToken);
@@ -200,9 +210,11 @@ public class CleverAuthenticationService : ICleverAuthenticationService
         if (!response.IsSuccessStatusCode)
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            // FR-010: Sanitize HTTP response to prevent credential leakage
+            var sanitizedResponse = SensitiveDataSanitizer.SanitizeHttpResponse(errorContent);
             _logger.LogError(
-                "Token retrieval failed with status {StatusCode}. Response: {ErrorContent}",
-                response.StatusCode, errorContent);
+                "Token retrieval failed with status {StatusCode}. Response: {SanitizedResponse}",
+                response.StatusCode, sanitizedResponse);
         }
 
         response.EnsureSuccessStatusCode();

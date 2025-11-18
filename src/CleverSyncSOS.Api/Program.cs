@@ -10,6 +10,8 @@
 
 using HealthChecks.UI.Client;
 using CleverSyncSOS.Infrastructure.Extensions;
+using CleverSyncSOS.Infrastructure.Telemetry;
+using Microsoft.ApplicationInsights.Extensibility;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -22,8 +24,10 @@ builder.Logging.AddDebug();
 // Add services to the container
 builder.Services.AddOpenApi();
 
-// FR-010: Add Application Insights telemetry
+// FR-010: Add Application Insights telemetry with sanitization
 builder.Services.AddApplicationInsightsTelemetry();
+// Register sanitizing telemetry processor
+builder.Services.AddApplicationInsightsTelemetryProcessor<SanitizingTelemetryProcessor>();
 
 // FR-002, FR-007: Load SessionDb connection string from Azure Key Vault
 var tempConfig = builder.Configuration;
