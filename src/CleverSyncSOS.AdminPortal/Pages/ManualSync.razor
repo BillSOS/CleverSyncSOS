@@ -1,0 +1,241 @@
+@page "/manual-sync"
+@using CleverSyncSOS.AdminPortal.Components.Sync
+@using CleverSyncSOS.AdminPortal.Models.ViewModels
+@using CleverSyncSOS.AdminPortal.Services
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.SignalR.Client
+@attribute [Authorize]
+@inject ISchoolScopeService SchoolScopeService
+@inject ISyncCoordinatorService SyncCoordinatorService
+@inject ICurrentUserService CurrentUserService
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@implements IAsyncDisposable
+
+<PageTitle>Manual Sync - CleverSyncSOS</PageTitle>
+
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-8 offset-md-2">
+            <h2>Manual Sync</h2>
+            <hr />
+
+            @if (_loading)
+            {
+                <div class="text-center">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p>Loading scopes...</p>
+                </div>
+            }
+            else if (!string.IsNullOrEmpty(_errorMessage))
+            {
+                <div class="alert alert-danger" role="alert">
+                    @_errorMessage
+                </div>
+            }
+            else
+            {
+                <SyncScopeSelector AvailableScopes="_viewModel.AvailableScopes"
+                                   @bind-SelectedScope="_viewModel.SelectedScope"
+                                   IsDisabled="_viewModel.IsSyncInProgress" />
+
+                <SyncModeSelector @bind-SelectedSyncMode="_viewModel.SyncMode" />
+
+                <div class="d-grid gap-2">
+                    <button class="btn btn-primary btn-lg"
+                            @onclick="OnStartSyncClicked"
+                            disabled="@(!_viewModel.IsStartSyncButtonEnabled)">
+                        <i class="bi bi-arrow-repeat"></i> Start Sync
+                    </button>
+                </div>
+
+                @if (_viewModel.IsSyncInProgress)
+                {
+                    <SyncProgressIndicator Progress="_viewModel.CurrentProgress" />
+                }
+
+                @if (_viewModel.LastSyncResult != null)
+                {
+                    <SyncResultsCard Result="_viewModel.LastSyncResult" />
+                }
+
+                <FullSyncConfirmationDialog IsVisible="_viewModel.ShowFullSyncConfirmation"
+                                            OnConfirmed="OnFullSyncConfirmed"
+                                            OnCancelled="OnFullSyncCancelled" />
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private ManualSyncViewModel _viewModel = new();
+    private HubConnection? _hubConnection;
+    private bool _loading = true;
+    private string? _errorMessage;
+    private int _currentUserId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            // Get current user context
+            _currentUserId = CurrentUserService.UserId ?? 0;
+            _viewModel.UserRole = CurrentUserService.Role ?? string.Empty;
+            _viewModel.UserSchoolId = CurrentUserService.SchoolId;
+            _viewModel.UserDistrictId = CurrentUserService.DistrictId; // This is a string (Clever ID)
+
+            // Load available scopes
+            _viewModel.AvailableScopes = await SchoolScopeService.GetAvailableScopesAsync(_currentUserId);
+
+            // Pre-select first scope if available (for School Admin, this will be their only school)
+            if (_viewModel.AvailableScopes.Any())
+            {
+                _viewModel.SelectedScope = _viewModel.AvailableScopes.First().Value;
+            }
+
+            // Initialize SignalR connection
+            await InitializeSignalRConnection();
+
+            _loading = false;
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to initialize page: {ex.Message}";
+            _loading = false;
+        }
+    }
+
+    private async Task InitializeSignalRConnection()
+    {
+        _hubConnection = new HubConnectionBuilder()
+            .WithUrl(Navigation.ToAbsoluteUri("/hubs/syncProgress"))
+            .WithAutomaticReconnect()
+            .Build();
+
+        // FR-003: Connection state monitoring
+        _hubConnection.Closed += async (error) =>
+        {
+            await InvokeAsync(() =>
+            {
+                _errorMessage = "SignalR connection lost. Attempting to reconnect...";
+                StateHasChanged();
+            });
+        };
+
+        _hubConnection.Reconnecting += async (error) =>
+        {
+            await InvokeAsync(() =>
+            {
+                _errorMessage = "SignalR reconnecting...";
+                StateHasChanged();
+            });
+        };
+
+        _hubConnection.Reconnected += async (connectionId) =>
+        {
+            await InvokeAsync(() =>
+            {
+                _errorMessage = null; // Clear error on successful reconnection
+                StateHasChanged();
+            });
+        };
+
+        // FR-003: Real-time progress updates via SignalR
+        _hubConnection.On<SyncProgressUpdate>("ReceiveProgress", async (progress) =>
+        {
+            _viewModel.CurrentProgress = progress;
+            await InvokeAsync(StateHasChanged);
+        });
+
+        _hubConnection.On<SyncResultViewModel>("ReceiveCompletion", async (result) =>
+        {
+            _viewModel.LastSyncResult = result;
+            _viewModel.IsSyncInProgress = false;
+            await InvokeAsync(StateHasChanged);
+        });
+
+        try
+        {
+            await _hubConnection.StartAsync();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to connect to SignalR hub: {ex.Message}";
+        }
+    }
+
+    private async Task OnStartSyncClicked()
+    {
+        // Check if Full Sync selected and show confirmation
+        if (_viewModel.SyncMode == SyncMode.Full)
+        {
+            _viewModel.ShowFullSyncConfirmation = true;
+            return;
+        }
+
+        // Start sync directly for Incremental mode
+        await StartSyncAsync();
+    }
+
+    private async Task OnFullSyncConfirmed()
+    {
+        _viewModel.ShowFullSyncConfirmation = false;
+        await StartSyncAsync();
+    }
+
+    private Task OnFullSyncCancelled()
+    {
+        _viewModel.ShowFullSyncConfirmation = false;
+        return Task.CompletedTask;
+    }
+
+    private async Task StartSyncAsync()
+    {
+        try
+        {
+            // Validate scope access
+            var hasAccess = await SchoolScopeService.ValidateScopeAccessAsync(_currentUserId, _viewModel.SelectedScope);
+            if (!hasAccess)
+            {
+                _errorMessage = "You do not have permission to sync this scope.";
+                return;
+            }
+
+            // Subscribe to progress updates for this scope
+            if (_hubConnection != null)
+            {
+                await _hubConnection.InvokeAsync("SubscribeToSyncProgress", _viewModel.SelectedScope);
+            }
+
+            // Mark sync as in progress
+            _viewModel.IsSyncInProgress = true;
+            _viewModel.LastSyncResult = null;
+            _viewModel.CurrentProgress = null;
+
+            // Start sync operation
+            var connectionId = _hubConnection?.ConnectionId ?? string.Empty;
+            var result = await SyncCoordinatorService.StartSyncAsync(
+                _currentUserId,
+                _viewModel.SelectedScope,
+                _viewModel.SyncMode,
+                connectionId);
+
+            // Result will be received via SignalR ReceiveCompletion event
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to start sync: {ex.Message}";
+            _viewModel.IsSyncInProgress = false;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_hubConnection != null)
+        {
+            await _hubConnection.DisposeAsync();
+        }
+    }
+}

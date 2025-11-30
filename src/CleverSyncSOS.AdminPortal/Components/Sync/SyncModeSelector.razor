@@ -1,0 +1,49 @@
+@using CleverSyncSOS.AdminPortal.Models.ViewModels
+
+<div class="mb-3">
+    <label class="form-label">Sync Mode</label>
+
+    <div class="form-check">
+        <input class="form-check-input"
+               type="radio"
+               name="syncMode"
+               id="incrementalSync"
+               value="@SyncMode.Incremental"
+               checked="@(SelectedSyncMode == SyncMode.Incremental)"
+               @onchange="@(() => OnSyncModeChanged(SyncMode.Incremental))">
+        <label class="form-check-label" for="incrementalSync">
+            <strong>Incremental Sync</strong> (Recommended)
+            <br />
+            <small class="text-muted">Syncs only records changed since last sync</small>
+        </label>
+    </div>
+
+    <div class="form-check mt-2">
+        <input class="form-check-input"
+               type="radio"
+               name="syncMode"
+               id="fullSync"
+               value="@SyncMode.Full"
+               checked="@(SelectedSyncMode == SyncMode.Full)"
+               @onchange="@(() => OnSyncModeChanged(SyncMode.Full))">
+        <label class="form-check-label" for="fullSync">
+            <strong>Full Sync</strong> <span class="badge bg-warning text-dark">⚠️</span>
+            <br />
+            <small class="text-muted">Syncs all records and deletes missing students</small>
+        </label>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public SyncMode SelectedSyncMode { get; set; } = SyncMode.Incremental;
+
+    [Parameter]
+    public EventCallback<SyncMode> SelectedSyncModeChanged { get; set; }
+
+    private async Task OnSyncModeChanged(SyncMode newMode)
+    {
+        SelectedSyncMode = newMode;
+        await SelectedSyncModeChanged.InvokeAsync(newMode);
+    }
+}

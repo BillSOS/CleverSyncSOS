@@ -1,0 +1,197 @@
+@page "/districts"
+@attribute [Authorize(Policy = "DistrictAdmin")]
+@using CleverSyncSOS.Core.Database.SessionDb
+@using CleverSyncSOS.Core.Database.SessionDb.Entities
+@using CleverSyncSOS.AdminPortal.Services
+@using Microsoft.EntityFrameworkCore
+@inject SessionDbContext DbContext
+@inject ICurrentUserService CurrentUser
+@inject NavigationManager NavigationManager
+
+<PageTitle>Districts - CleverSync Admin</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>Districts</h1>
+        <button class="btn btn-primary" @onclick="RefreshDistricts">
+            <i class="oi oi-reload"></i> Refresh
+        </button>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="text-center my-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2 text-muted">Loading districts...</p>
+        </div>
+    }
+    else if (_error != null)
+    {
+        <div class="alert alert-danger" role="alert">
+            <h4 class="alert-heading">Error</h4>
+            <p>@_error</p>
+            <button class="btn btn-sm btn-outline-danger" @onclick="LoadDistricts">Try Again</button>
+        </div>
+    }
+    else if (_districts == null || !_districts.Any())
+    {
+        <div class="alert alert-info" role="alert">
+            <h4 class="alert-heading">No Districts Found</h4>
+            <p>No districts are currently configured.</p>
+        </div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>District Name</th>
+                        <th>District Prefix</th>
+                        <th class="text-center">Total Schools</th>
+                        <th class="text-center">Active Schools</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var district in _districts)
+                    {
+                        <tr>
+                            <td>
+                                <strong>@district.Name</strong>
+                            </td>
+                            <td>
+                                <span class="badge bg-secondary">@district.DistrictPrefix</span>
+                            </td>
+                            <td class="text-center">
+                                <span class="badge bg-primary">@district.Schools.Count</span>
+                            </td>
+                            <td class="text-center">
+                                <span class="badge bg-success">@district.Schools.Count(s => s.IsActive)</span>
+                            </td>
+                            <td>
+                                <span class="text-muted small">@FormatLocalTime(district.CreatedAt, district.LocalTimeZone, "d")</span>
+                            </td>
+                            <td>
+                                <div class="btn-group" role="group">
+                                    <button class="btn btn-sm btn-primary" @onclick="() => ViewDistrictSchools(district.CleverDistrictId)" title="View Schools">
+                                        <i class="oi oi-building"></i> Schools
+                                    </button>
+                                    @if (CurrentUser.IsSuperAdmin)
+                                    {
+                                        <button class="btn btn-sm btn-outline-primary" @onclick="() => ConfigureDistrict(district.CleverDistrictId)" title="Configure District">
+                                            <i class="oi oi-cog"></i> Configure
+                                        </button>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="mt-3">
+            <p class="text-muted">
+                Showing @_districts.Count district@(_districts.Count != 1 ? "s" : "")
+            </p>
+        </div>
+    }
+</div>
+
+@code {
+    private List<District>? _districts;
+    private bool _loading = true;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDistricts();
+    }
+
+    private async Task LoadDistricts()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            var query = DbContext.Districts
+                .Include(d => d.Schools)
+                .AsQueryable();
+
+            // Apply scope filtering based on user role
+            if (CurrentUser.IsDistrictAdmin && !CurrentUser.IsSuperAdmin)
+            {
+                // DistrictAdmin: Only show their district
+                if (!string.IsNullOrEmpty(CurrentUser.DistrictId))
+                {
+                    query = query.Where(d => d.CleverDistrictId == CurrentUser.DistrictId);
+                }
+                else
+                {
+                    _error = "Your account is not assigned to a district. Please contact an administrator.";
+                    _loading = false;
+                    return;
+                }
+            }
+            // SuperAdmin: Show all districts (no filtering)
+
+            _districts = await query
+                .OrderBy(d => d.Name)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to load districts: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task RefreshDistricts()
+    {
+        await LoadDistricts();
+    }
+
+    private void ViewDistrictSchools(string districtId)
+    {
+        NavigationManager.NavigateTo($"/schools?district={districtId}");
+    }
+
+    private void ConfigureDistrict(string districtId)
+    {
+        NavigationManager.NavigateTo($"/districts/{districtId}/config");
+    }
+
+    private DateTime ConvertToLocalTime(DateTime utcTime, string? timeZoneId)
+    {
+        if (string.IsNullOrEmpty(timeZoneId))
+        {
+            timeZoneId = "Eastern Standard Time"; // Default to Eastern if not specified
+        }
+
+        try
+        {
+            var timeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+            return TimeZoneInfo.ConvertTimeFromUtc(utcTime, timeZone);
+        }
+        catch
+        {
+            // If timezone conversion fails, fall back to Eastern Standard Time
+            var easternZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+            return TimeZoneInfo.ConvertTimeFromUtc(utcTime, easternZone);
+        }
+    }
+
+    private string FormatLocalTime(DateTime utcTime, string? timeZoneId, string format = "d")
+    {
+        var localTime = ConvertToLocalTime(utcTime, timeZoneId);
+        return localTime.ToString(format);
+    }
+}

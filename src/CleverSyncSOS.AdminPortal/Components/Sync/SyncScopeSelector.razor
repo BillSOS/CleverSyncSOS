@@ -1,0 +1,47 @@
+@using CleverSyncSOS.AdminPortal.Models.ViewModels
+
+<div class="mb-3">
+    <label for="scopeSelector" class="form-label">Select Scope</label>
+    <select id="scopeSelector"
+            class="form-select @(IsDisabled ? "disabled" : "")"
+            @bind="SelectedScope"
+            disabled="@IsDisabled">
+        @if (AvailableScopes != null && AvailableScopes.Any())
+        {
+            @foreach (var option in AvailableScopes)
+            {
+                <option value="@option.Value" disabled="@option.IsDisabled">
+                    @if (!string.IsNullOrEmpty(option.Icon))
+                    {
+                        <i class="bi @option.Icon"></i>
+                    }
+                    @option.DisplayText
+                </option>
+            }
+        }
+        else
+        {
+            <option value="">No scopes available</option>
+        }
+    </select>
+</div>
+
+@code {
+    [Parameter]
+    public List<SyncScopeOption>? AvailableScopes { get; set; }
+
+    [Parameter]
+    public string SelectedScope { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> SelectedScopeChanged { get; set; }
+
+    [Parameter]
+    public bool IsDisabled { get; set; }
+
+    private async Task OnScopeChanged(ChangeEventArgs e)
+    {
+        SelectedScope = e.Value?.ToString() ?? string.Empty;
+        await SelectedScopeChanged.InvokeAsync(SelectedScope);
+    }
+}

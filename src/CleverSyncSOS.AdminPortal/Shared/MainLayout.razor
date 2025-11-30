@@ -1,0 +1,28 @@
+﻿@inherits LayoutComponentBase
+
+<PageTitle>CleverSync Admin Portal</PageTitle>
+
+<div class="page">
+    <div class="sidebar">
+        <NavMenu />
+    </div>
+    <div class="main">
+        <div class="top-row px-4 auth justify-content-end">
+            <AuthorizeView Context="authState">
+                <Authorized>
+                    <span class="user-info">@authState.User.Identity?.Name</span>
+                </Authorized>
+            </AuthorizeView>
+        </div>
+        <article class="content px-4">
+            @Body
+        </article>
+    </div>
+</div>
+
+<!-- FR-001: Session Timeout Warning (30 min timeout, 5 min warning) -->
+<AuthorizeView>
+    <Authorized>
+        <SessionTimeoutWarning />
+    </Authorized>
+</AuthorizeView>

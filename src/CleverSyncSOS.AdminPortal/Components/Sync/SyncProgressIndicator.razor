@@ -1,0 +1,85 @@
+@using CleverSyncSOS.AdminPortal.Models.ViewModels
+
+@if (Progress != null)
+{
+    <div class="card mt-3">
+        <div class="card-header">
+            <h5 class="mb-0">Sync Progress</h5>
+        </div>
+        <div class="card-body">
+            <div class="progress mb-3" style="height: 30px;">
+                <div class="progress-bar progress-bar-striped progress-bar-animated"
+                     role="progressbar"
+                     style="width: @(Progress.PercentComplete)%"
+                     aria-valuenow="@Progress.PercentComplete"
+                     aria-valuemin="0"
+                     aria-valuemax="100">
+                    @Progress.PercentComplete%
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <p class="mb-2">
+                        <strong>Current Operation:</strong> @Progress.CurrentOperation
+                    </p>
+                    <p class="mb-2">
+                        <strong>Elapsed Time:</strong> @GetElapsedTime()
+                    </p>
+                    @if (Progress.EstimatedTimeRemaining.HasValue)
+                    {
+                        <p class="mb-2">
+                            <strong>Estimated Time Remaining:</strong> @FormatTimeSpan(Progress.EstimatedTimeRemaining.Value)
+                        </p>
+                    }
+                </div>
+                <div class="col-md-6">
+                    <p class="mb-2">
+                        <strong>Students:</strong>
+                        @Progress.StudentsProcessed processed
+                        @if (Progress.StudentsFailed > 0)
+                        {
+                            <span class="text-danger">(@Progress.StudentsFailed failed)</span>
+                        }
+                    </p>
+                    <p class="mb-2">
+                        <strong>Teachers:</strong>
+                        @Progress.TeachersProcessed processed
+                        @if (Progress.TeachersFailed > 0)
+                        {
+                            <span class="text-danger">(@Progress.TeachersFailed failed)</span>
+                        }
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public SyncProgressUpdate? Progress { get; set; }
+
+    private string GetElapsedTime()
+    {
+        if (Progress == null) return "0s";
+        var elapsed = DateTime.UtcNow - Progress.StartTime;
+        return FormatTimeSpan(elapsed);
+    }
+
+    private string FormatTimeSpan(TimeSpan span)
+    {
+        if (span.TotalHours >= 1)
+        {
+            return $"{(int)span.TotalHours}h {span.Minutes}m {span.Seconds}s";
+        }
+        else if (span.TotalMinutes >= 1)
+        {
+            return $"{(int)span.TotalMinutes}m {span.Seconds}s";
+        }
+        else
+        {
+            return $"{span.Seconds}s";
+        }
+    }
+}

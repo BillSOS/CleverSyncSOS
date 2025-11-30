@@ -44,7 +44,7 @@ public class SyncService : ISyncService
     }
 
     /// <inheritdoc />
-    public async Task<SyncSummary> SyncAllDistrictsAsync(bool forceFullSync = false, CancellationToken cancellationToken = default)
+    public async Task<SyncSummary> SyncAllDistrictsAsync(bool forceFullSync = false, IProgress<SyncProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Starting sync for all districts (forceFullSync: {ForceFullSync})", forceFullSync);
 
@@ -63,22 +63,31 @@ public class SyncService : ISyncService
             _logger.LogInformation("Found {Count} districts to sync", districts.Count);
 
             // Step 2: Sync each district
+            int districtsCompleted = 0;
             foreach (var district in districts)
             {
                 try
                 {
-                    var districtResult = await SyncDistrictAsync(district.DistrictId, forceFullSync, cancellationToken);
+                    progress?.Report(new SyncProgress
+                    {
+                        PercentComplete = 10 + (80 * districtsCompleted / districts.Count),
+                        CurrentOperation = $"Syncing district: {district.Name}..."
+                    });
+
+                    var districtResult = await SyncDistrictAsync(district.DistrictId, forceFullSync, progress, cancellationToken);
                     summary.TotalSchools += districtResult.TotalSchools;
                     summary.SuccessfulSchools += districtResult.SuccessfulSchools;
                     summary.FailedSchools += districtResult.FailedSchools;
                     summary.TotalRecordsProcessed += districtResult.TotalRecordsProcessed;
                     summary.TotalRecordsFailed += districtResult.TotalRecordsFailed;
                     summary.SchoolResults.AddRange(districtResult.SchoolResults);
+                    districtsCompleted++;
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Failed to sync district {DistrictId} ({DistrictName})",
                         district.DistrictId, district.Name);
+                    districtsCompleted++;
                 }
             }
 
@@ -98,7 +107,7 @@ public class SyncService : ISyncService
     }
 
     /// <inheritdoc />
-    public async Task<SyncSummary> SyncDistrictAsync(int districtId, bool forceFullSync = false, CancellationToken cancellationToken = default)
+    public async Task<SyncSummary> SyncDistrictAsync(int districtId, bool forceFullSync = false, IProgress<SyncProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         var district = await _sessionDb.Districts
             .Include(d => d.Schools)
@@ -121,13 +130,36 @@ public class SyncService : ISyncService
         // Step 3: Sync active schools in parallel (max 5 concurrent)
         var activeSchools = district.Schools.Where(s => s.IsActive).ToList();
 
+        progress?.Report(new SyncProgress
+        {
+            PercentComplete = 10,
+            CurrentOperation = $"Starting sync for {activeSchools.Count} schools in {district.Name}..."
+        });
+
         var semaphore = new SemaphoreSlim(5, 5); // Max 5 concurrent school syncs
+        int schoolsCompleted = 0;
         var syncTasks = activeSchools.Select(async school =>
         {
             await semaphore.WaitAsync(cancellationToken);
             try
             {
-                var result = await SyncSchoolAsync(school.SchoolId, forceFullSync, cancellationToken);
+                // Create a nested progress reporter that scales to this school's portion
+                var schoolProgress = new Progress<SyncProgress>(p =>
+                {
+                    var overallPercent = 10 + (80 * schoolsCompleted / activeSchools.Count);
+                    progress?.Report(new SyncProgress
+                    {
+                        PercentComplete = overallPercent,
+                        CurrentOperation = $"{school.Name}: {p.CurrentOperation}",
+                        StudentsProcessed = p.StudentsProcessed,
+                        StudentsFailed = p.StudentsFailed,
+                        TeachersProcessed = p.TeachersProcessed,
+                        TeachersFailed = p.TeachersFailed
+                    });
+                });
+
+                var result = await SyncSchoolAsync(school.SchoolId, forceFullSync, schoolProgress, cancellationToken);
+                Interlocked.Increment(ref schoolsCompleted);
                 return result;
             }
             finally
@@ -153,7 +185,7 @@ public class SyncService : ISyncService
     }
 
     /// <inheritdoc />
-    public async Task<SyncResult> SyncSchoolAsync(int schoolId, bool forceFullSync = false, CancellationToken cancellationToken = default)
+    public async Task<SyncResult> SyncSchoolAsync(int schoolId, bool forceFullSync = false, IProgress<SyncProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         var result = new SyncResult
         {
@@ -176,6 +208,13 @@ public class SyncService : ISyncService
 
             _logger.LogInformation("Starting sync for school {SchoolId} ({SchoolName})", schoolId, school.Name);
 
+            // Report initial progress
+            progress?.Report(new SyncProgress
+            {
+                PercentComplete = 5,
+                CurrentOperation = $"Connecting to {school.Name} database..."
+            });
+
             // Step 4b: Connect to school's dedicated database
             await using var schoolDb = await _schoolDbFactory.CreateSchoolContextAsync(school);
 
@@ -190,14 +229,20 @@ public class SyncService : ISyncService
 
             _logger.LogInformation("Sync type for school {SchoolId}: {SyncType}", schoolId, result.SyncType);
 
+            progress?.Report(new SyncProgress
+            {
+                PercentComplete = 10,
+                CurrentOperation = $"Starting {result.SyncType} sync for {school.Name}..."
+            });
+
             // Step 4e-4g: Sync students and teachers
             if (isFullSync)
             {
-                await PerformFullSyncAsync(school, schoolDb, result, cancellationToken);
+                await PerformFullSyncAsync(school, schoolDb, result, progress, cancellationToken);
             }
             else
             {
-                await PerformIncrementalSyncAsync(school, schoolDb, result, lastSync!.LastSyncTimestamp, cancellationToken);
+                await PerformIncrementalSyncAsync(school, schoolDb, result, lastSync!.LastSyncTimestamp, progress, cancellationToken);
             }
 
             // Reset RequiresFullSync flag after successful full sync
@@ -235,6 +280,7 @@ public class SyncService : ISyncService
         School school,
         SchoolDbContext schoolDb,
         SyncResult result,
+        IProgress<SyncProgress>? progress,
         CancellationToken cancellationToken)
     {
         _logger.LogInformation("Performing FULL sync for school {SchoolId}", school.SchoolId);
@@ -256,9 +302,24 @@ public class SyncService : ISyncService
         }
         await schoolDb.SaveChangesAsync(cancellationToken);
 
+        progress?.Report(new SyncProgress
+        {
+            PercentComplete = 20,
+            CurrentOperation = "Fetching students from Clever API..."
+        });
+
         // Step 2: Fetch all students and teachers from Clever API
-        await SyncStudentsAsync(school, schoolDb, result, null, cancellationToken);
-        await SyncTeachersAsync(school, schoolDb, result, null, cancellationToken);
+        await SyncStudentsAsync(school, schoolDb, result, null, progress, 20, 60, cancellationToken);
+
+        progress?.Report(new SyncProgress
+        {
+            PercentComplete = 60,
+            CurrentOperation = "Fetching teachers from Clever API...",
+            StudentsProcessed = result.StudentsProcessed,
+            StudentsFailed = result.StudentsFailed
+        });
+
+        await SyncTeachersAsync(school, schoolDb, result, null, progress, 60, 90, cancellationToken);
 
         // Step 3: Hard-delete inactive students and teachers
         var inactiveStudents = await schoolDb.Students.Where(s => !s.IsActive).ToListAsync(cancellationToken);
@@ -277,22 +338,224 @@ public class SyncService : ISyncService
     }
 
     /// <summary>
-    /// Performs an incremental sync using lastModified timestamp.
-    /// Source: FR-024 - Incremental sync with lastModified filter
+    /// Performs an incremental sync using Clever's Events API.
+    /// Source: FR-024 - Incremental sync using Events API
+    /// Documentation: https://dev.clever.com/docs/events-api
     /// </summary>
     private async Task PerformIncrementalSyncAsync(
         School school,
         SchoolDbContext schoolDb,
         SyncResult result,
         DateTime? lastModified,
+        IProgress<SyncProgress>? progress,
         CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Performing INCREMENTAL sync for school {SchoolId} (lastModified: {LastModified})",
-            school.SchoolId, lastModified?.ToString("yyyy-MM-ddTHH:mm:ssZ") ?? "null");
+        _logger.LogInformation("Performing INCREMENTAL sync for school {SchoolId} using Events API",
+            school.SchoolId);
 
-        // Fetch only modified students and teachers
-        await SyncStudentsAsync(school, schoolDb, result, lastModified, cancellationToken);
-        await SyncTeachersAsync(school, schoolDb, result, lastModified, cancellationToken);
+        // Get the last event ID from the most recent successful sync
+        var lastEventId = await _sessionDb.SyncHistory
+            .Where(h => h.SchoolId == school.SchoolId && h.Status == "Success" && h.LastEventId != null)
+            .OrderByDescending(h => h.SyncEndTime)
+            .Select(h => h.LastEventId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (string.IsNullOrEmpty(lastEventId))
+        {
+            // First incremental sync - get the latest event ID as baseline
+            _logger.LogInformation("No previous event ID found. Fetching baseline event ID for school {SchoolId}", school.SchoolId);
+            lastEventId = await _cleverClient.GetLatestEventIdAsync(cancellationToken);
+
+            if (string.IsNullOrEmpty(lastEventId))
+            {
+                _logger.LogWarning("No events available in Clever. Performing full sync instead.");
+                await PerformFullSyncAsync(school, schoolDb, result, progress, cancellationToken);
+                return;
+            }
+
+            _logger.LogInformation("Baseline event ID established: {EventId}", lastEventId);
+
+            // Save the baseline event ID without processing events
+            var baselineSyncHistory = new SyncHistory
+            {
+                SchoolId = school.SchoolId,
+                EntityType = "Baseline",
+                SyncType = SyncType.Incremental,
+                SyncStartTime = DateTime.UtcNow,
+                SyncEndTime = DateTime.UtcNow,
+                Status = "Success",
+                RecordsProcessed = 0,
+                RecordsFailed = 0,
+                LastEventId = lastEventId
+            };
+            _sessionDb.SyncHistory.Add(baselineSyncHistory);
+            await _sessionDb.SaveChangesAsync(cancellationToken);
+
+            return;
+        }
+
+        _logger.LogInformation("Fetching events after event ID: {EventId}", lastEventId);
+
+        // Fetch events for this school since the last event ID
+        var events = await _cleverClient.GetEventsAsync(
+            startingAfter: lastEventId,
+            schoolId: school.CleverSchoolId,
+            recordType: "users", // Students and teachers are both "users" in Clever
+            limit: 1000,
+            cancellationToken: cancellationToken);
+
+        _logger.LogInformation("Retrieved {Count} events for school {SchoolId}", events.Length, school.SchoolId);
+
+        if (events.Length == 0)
+        {
+            _logger.LogInformation("No new events to process for school {SchoolId}", school.SchoolId);
+            return;
+        }
+
+        // Process events in chronological order (they're already sorted oldest to newest)
+        string? latestEventId = null;
+        foreach (var evt in events)
+        {
+            try
+            {
+                await ProcessEventAsync(school, schoolDb, evt, result, cancellationToken);
+                latestEventId = evt.Id; // Track the latest event ID we've processed
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to process event {EventId} (type: {EventType}) for school {SchoolId}",
+                    evt.Id, evt.Type, school.SchoolId);
+                result.StudentsFailed++; // Count as failed (could be student or teacher)
+            }
+        }
+
+        // Update sync history with the latest event ID
+        if (!string.IsNullOrEmpty(latestEventId))
+        {
+            var eventSyncHistory = new SyncHistory
+            {
+                SchoolId = school.SchoolId,
+                EntityType = "Event",
+                SyncType = SyncType.Incremental,
+                SyncStartTime = DateTime.UtcNow,
+                SyncEndTime = DateTime.UtcNow,
+                Status = "Success",
+                RecordsProcessed = events.Length,
+                RecordsFailed = 0,
+                LastEventId = latestEventId
+            };
+            _sessionDb.SyncHistory.Add(eventSyncHistory);
+            await _sessionDb.SaveChangesAsync(cancellationToken);
+
+            _logger.LogInformation("Incremental sync complete. Last event ID: {EventId}", latestEventId);
+        }
+    }
+
+    /// <summary>
+    /// Processes a single event from Clever's Events API.
+    /// Handles created, updated, and deleted events for students and teachers.
+    /// </summary>
+    private async Task ProcessEventAsync(
+        School school,
+        SchoolDbContext schoolDb,
+        CleverEvent evt,
+        SyncResult result,
+        CancellationToken cancellationToken)
+    {
+        var objectType = evt.Data.Object;
+        var eventType = evt.Type;
+
+        _logger.LogDebug("Processing event {EventId}: {EventType} {ObjectType} ({ObjectId})",
+            evt.Id, eventType, objectType, evt.Data.Id);
+
+        // Determine if this is a student or teacher based on role
+        // We need to deserialize the raw data to check the role
+        if (evt.Data.RawData == null)
+        {
+            _logger.LogWarning("Event {EventId} has no data. Skipping.", evt.Id);
+            return;
+        }
+
+        // Parse the role from the raw data
+        var rawDataJson = System.Text.Json.JsonSerializer.Serialize(evt.Data.RawData);
+        var dataWrapper = System.Text.Json.JsonSerializer.Deserialize<CleverDataWrapper<System.Text.Json.JsonElement>>(rawDataJson);
+
+        if (dataWrapper?.Data == null)
+        {
+            _logger.LogWarning("Event {EventId} has invalid data structure. Skipping.", evt.Id);
+            return;
+        }
+
+        var role = dataWrapper.Data.TryGetProperty("roles", out var rolesElement) &&
+                   rolesElement.GetArrayLength() > 0
+            ? rolesElement[0].TryGetProperty("role", out var roleElement) ? roleElement.GetString() : null
+            : null;
+
+        if (string.IsNullOrEmpty(role))
+        {
+            _logger.LogDebug("Event {EventId} has no role. Skipping.", evt.Id);
+            return;
+        }
+
+        switch (eventType.ToLower())
+        {
+            case "created":
+            case "updated":
+                if (role == "student")
+                {
+                    var student = System.Text.Json.JsonSerializer.Deserialize<CleverStudent>(rawDataJson);
+                    if (student != null)
+                    {
+                        await UpsertStudentAsync(schoolDb, student, cancellationToken);
+                        result.StudentsProcessed++;
+                    }
+                }
+                else if (role == "teacher")
+                {
+                    var teacher = System.Text.Json.JsonSerializer.Deserialize<CleverTeacher>(rawDataJson);
+                    if (teacher != null)
+                    {
+                        await UpsertTeacherAsync(schoolDb, teacher, cancellationToken);
+                        result.TeachersProcessed++;
+                    }
+                }
+                break;
+
+            case "deleted":
+                if (role == "student")
+                {
+                    var studentId = evt.Data.Id;
+                    var student = await schoolDb.Students
+                        .FirstOrDefaultAsync(s => s.CleverStudentId == studentId, cancellationToken);
+                    if (student != null)
+                    {
+                        student.IsActive = false;
+                        student.DeactivatedAt = DateTime.UtcNow;
+                        await schoolDb.SaveChangesAsync(cancellationToken);
+                        result.StudentsDeleted++;
+                        _logger.LogDebug("Deactivated student {CleverStudentId}", studentId);
+                    }
+                }
+                else if (role == "teacher")
+                {
+                    var teacherId = evt.Data.Id;
+                    var teacher = await schoolDb.Teachers
+                        .FirstOrDefaultAsync(t => t.CleverTeacherId == teacherId, cancellationToken);
+                    if (teacher != null)
+                    {
+                        teacher.IsActive = false;
+                        teacher.DeactivatedAt = DateTime.UtcNow;
+                        await schoolDb.SaveChangesAsync(cancellationToken);
+                        result.TeachersDeleted++;
+                        _logger.LogDebug("Deactivated teacher {CleverTeacherId}", teacherId);
+                    }
+                }
+                break;
+
+            default:
+                _logger.LogWarning("Unknown event type: {EventType} for event {EventId}", eventType, evt.Id);
+                break;
+        }
     }
 
     /// <summary>
@@ -303,6 +566,9 @@ public class SyncService : ISyncService
         SchoolDbContext schoolDb,
         SyncResult result,
         DateTime? lastModified,
+        IProgress<SyncProgress>? progress,
+        int startPercent,
+        int endPercent,
         CancellationToken cancellationToken)
     {
         var syncHistory = new SyncHistory
@@ -324,12 +590,29 @@ public class SyncService : ISyncService
                 cleverStudents.Length, school.SchoolId);
 
             // Upsert students
-            foreach (var cleverStudent in cleverStudents)
+            int totalStudents = cleverStudents.Length;
+            int percentRange = endPercent - startPercent;
+
+            for (int i = 0; i < cleverStudents.Length; i++)
             {
+                var cleverStudent = cleverStudents[i];
                 try
                 {
                     await UpsertStudentAsync(schoolDb, cleverStudent, cancellationToken);
                     result.StudentsProcessed++;
+
+                    // Report progress every 10 students or at the end
+                    if ((i + 1) % 10 == 0 || i == totalStudents - 1)
+                    {
+                        int currentPercent = startPercent + (percentRange * (i + 1) / totalStudents);
+                        progress?.Report(new SyncProgress
+                        {
+                            PercentComplete = currentPercent,
+                            CurrentOperation = $"Processing students ({i + 1}/{totalStudents})...",
+                            StudentsProcessed = result.StudentsProcessed,
+                            StudentsFailed = result.StudentsFailed
+                        });
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -366,6 +649,9 @@ public class SyncService : ISyncService
         SchoolDbContext schoolDb,
         SyncResult result,
         DateTime? lastModified,
+        IProgress<SyncProgress>? progress,
+        int startPercent,
+        int endPercent,
         CancellationToken cancellationToken)
     {
         var syncHistory = new SyncHistory
@@ -387,12 +673,31 @@ public class SyncService : ISyncService
                 cleverTeachers.Length, school.SchoolId);
 
             // Upsert teachers
-            foreach (var cleverTeacher in cleverTeachers)
+            int totalTeachers = cleverTeachers.Length;
+            int percentRange = endPercent - startPercent;
+
+            for (int i = 0; i < cleverTeachers.Length; i++)
             {
+                var cleverTeacher = cleverTeachers[i];
                 try
                 {
                     await UpsertTeacherAsync(schoolDb, cleverTeacher, cancellationToken);
                     result.TeachersProcessed++;
+
+                    // Report progress every 10 teachers or at the end
+                    if ((i + 1) % 10 == 0 || i == totalTeachers - 1)
+                    {
+                        int currentPercent = startPercent + (percentRange * (i + 1) / totalTeachers);
+                        progress?.Report(new SyncProgress
+                        {
+                            PercentComplete = currentPercent,
+                            CurrentOperation = $"Processing teachers ({i + 1}/{totalTeachers})...",
+                            StudentsProcessed = result.StudentsProcessed,
+                            StudentsFailed = result.StudentsFailed,
+                            TeachersProcessed = result.TeachersProcessed,
+                            TeachersFailed = result.TeachersFailed
+                        });
+                    }
                 }
                 catch (Exception ex)
                 {

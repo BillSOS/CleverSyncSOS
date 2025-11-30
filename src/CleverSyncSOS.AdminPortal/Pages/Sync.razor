@@ -1,0 +1,591 @@
+@page "/sync"
+@attribute [Authorize(Policy = "SchoolAdmin")]
+@using CleverSyncSOS.Core.Database.SessionDb
+@using CleverSyncSOS.Core.Database.SessionDb.Entities
+@using CleverSyncSOS.AdminPortal.Services
+@using Microsoft.EntityFrameworkCore
+@inject SessionDbContext DbContext
+@inject ICurrentUserService CurrentUser
+@inject NavigationManager NavigationManager
+
+<PageTitle>Sync Operations - CleverSync Admin</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>Sync Operations</h1>
+        <div>
+            <button class="btn btn-success me-2" @onclick="StartManualSync">
+                <i class="oi oi-loop-circular"></i> Start Manual Sync
+            </button>
+            <button class="btn btn-primary" @onclick="RefreshData">
+                <i class="oi oi-reload"></i> Refresh
+            </button>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="text-center my-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2 text-muted">Loading sync operations...</p>
+        </div>
+    }
+    else if (_error != null)
+    {
+        <div class="alert alert-danger" role="alert">
+            <h4 class="alert-heading">Error</h4>
+            <p>@_error</p>
+            <button class="btn btn-sm btn-outline-danger" @onclick="LoadData">Try Again</button>
+        </div>
+    }
+    else
+    {
+        <!-- Summary Cards -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-subtitle mb-2 text-muted">Total Syncs</h6>
+                        <h3 class="card-title">@_syncHistory.Count</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-subtitle mb-2 text-muted">Successful</h6>
+                        <h3 class="card-title text-success">@_syncHistory.Count(s => s.Status == "Success")</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-subtitle mb-2 text-muted">Failed</h6>
+                        <h3 class="card-title text-danger">@_syncHistory.Count(s => s.Status == "Failed")</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-subtitle mb-2 text-muted">In Progress</h6>
+                        <h3 class="card-title text-warning">@_syncHistory.Count(s => s.Status == "InProgress")</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="row g-3">
+                    @if (CurrentUser.IsSuperAdmin || CurrentUser.IsDistrictAdmin)
+                    {
+                        <div class="col-md-3">
+                            <label class="form-label">School</label>
+                            <select class="form-select" @bind="_selectedSchoolId" @bind:after="FilterData">
+                                <option value="0">All Schools</option>
+                                @foreach (var school in _schools)
+                                {
+                                    <option value="@school.SchoolId">@school.Name</option>
+                                }
+                            </select>
+                        </div>
+                    }
+                    <div class="col-md-3">
+                        <label class="form-label">Entity Type</label>
+                        <select class="form-select" @bind="_selectedEntityType" @bind:after="FilterData">
+                            <option value="">All Types</option>
+                            <option value="Student">Students</option>
+                            <option value="Teacher">Teachers</option>
+                            <option value="Section">Sections</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Status</label>
+                        <select class="form-select" @bind="_selectedStatus" @bind:after="FilterData">
+                            <option value="">All Statuses</option>
+                            <option value="Success">Success</option>
+                            <option value="Failed">Failed</option>
+                            <option value="Partial">Partial</option>
+                            <option value="InProgress">In Progress</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Sync Type</label>
+                        <select class="form-select" @bind="_selectedSyncType" @bind:after="FilterData">
+                            <option value="">All Types</option>
+                            <option value="@SyncType.Incremental">Incremental</option>
+                            <option value="@SyncType.Full">Full</option>
+                            <option value="@SyncType.Reconciliation">Reconciliation</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sync History Table -->
+        @if (_filteredSyncHistory == null || !_filteredSyncHistory.Any())
+        {
+            <div class="alert alert-info" role="alert">
+                <h4 class="alert-heading">No Sync Operations Found</h4>
+                <p>No sync operations match the current filters.</p>
+            </div>
+        }
+        else
+        {
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Recent Sync Operations</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Start Time</th>
+                                    <th>School</th>
+                                    <th>Entity Type</th>
+                                    <th>Sync Type</th>
+                                    <th>Status</th>
+                                    <th>Records</th>
+                                    <th>Duration</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var sync in GetPagedData())
+                                {
+                                    <tr>
+                                        <td>
+                                            <span class="text-nowrap">@FormatLocalTime(sync.SyncStartTime, sync.School?.District?.LocalTimeZone)</span>
+                                        </td>
+                                        <td>
+                                            <strong>@sync.School?.Name</strong>
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-secondary">@sync.EntityType</span>
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-info">@sync.SyncType</span>
+                                        </td>
+                                        <td>
+                                            @if (sync.Status == "Success")
+                                            {
+                                                <span class="badge bg-success">Success</span>
+                                            }
+                                            else if (sync.Status == "Failed")
+                                            {
+                                                <span class="badge bg-danger">Failed</span>
+                                            }
+                                            else if (sync.Status == "InProgress")
+                                            {
+                                                <span class="badge bg-warning text-dark">In Progress</span>
+                                            }
+                                            else if (sync.Status == "Partial")
+                                            {
+                                                <span class="badge bg-warning text-dark">Partial</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-secondary">@sync.Status</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            <span class="text-success">@sync.RecordsProcessed</span>
+                                            @if (sync.RecordsFailed > 0)
+                                            {
+                                                <span class="text-danger"> / @sync.RecordsFailed failed</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            @if (sync.SyncEndTime.HasValue)
+                                            {
+                                                var duration = sync.SyncEndTime.Value - sync.SyncStartTime;
+                                                <span class="text-muted">@FormatDuration(duration)</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">-</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            <button class="btn btn-sm btn-outline-primary" @onclick="() => ViewDetails(sync)" title="View Details">
+                                                <i class="oi oi-eye"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- FR-004: Pagination Controls (50 records per page) -->
+                    <div class="mt-3 d-flex justify-content-between align-items-center">
+                        <div class="text-muted">
+                            Showing @GetStartRecord()-@GetEndRecord() of @_filteredSyncHistory.Count sync operation@(_filteredSyncHistory.Count != 1 ? "s" : "")
+                        </div>
+
+                        @if (TotalPages > 1)
+                        {
+                            <nav aria-label="Sync history pagination">
+                                <ul class="pagination mb-0">
+                                    <li class="page-item @(_currentPage == 1 ? "disabled" : "")">
+                                        <button class="page-link" @onclick="GoToFirstPage" disabled="@(_currentPage == 1)">
+                                            <i class="oi oi-media-skip-backward"></i>
+                                        </button>
+                                    </li>
+                                    <li class="page-item @(_currentPage == 1 ? "disabled" : "")">
+                                        <button class="page-link" @onclick="GoToPreviousPage" disabled="@(_currentPage == 1)">
+                                            <i class="oi oi-chevron-left"></i> Previous
+                                        </button>
+                                    </li>
+
+                                    @foreach (var pageNum in GetPageNumbers())
+                                    {
+                                        <li class="page-item @(_currentPage == pageNum ? "active" : "")">
+                                            <button class="page-link" @onclick="() => GoToPage(pageNum)">@pageNum</button>
+                                        </li>
+                                    }
+
+                                    <li class="page-item @(_currentPage == TotalPages ? "disabled" : "")">
+                                        <button class="page-link" @onclick="GoToNextPage" disabled="@(_currentPage == TotalPages)">
+                                            Next <i class="oi oi-chevron-right"></i>
+                                        </button>
+                                    </li>
+                                    <li class="page-item @(_currentPage == TotalPages ? "disabled" : "")">
+                                        <button class="page-link" @onclick="GoToLastPage" disabled="@(_currentPage == TotalPages)">
+                                            <i class="oi oi-media-skip-forward"></i>
+                                        </button>
+                                    </li>
+                                </ul>
+                            </nav>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- Details Modal -->
+        @if (_showDetailsModal && _selectedSync != null)
+        {
+            <div class="modal show d-block" tabindex="-1" role="dialog">
+                <div class="modal-dialog modal-lg" role="document">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Sync Operation Details</h5>
+                            <button type="button" class="btn-close" @onclick="CloseDetailsModal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <dl class="row">
+                                <dt class="col-sm-3">Sync ID:</dt>
+                                <dd class="col-sm-9">@_selectedSync.SyncId</dd>
+
+                                <dt class="col-sm-3">School:</dt>
+                                <dd class="col-sm-9">@_selectedSync.School?.Name</dd>
+
+                                <dt class="col-sm-3">Entity Type:</dt>
+                                <dd class="col-sm-9">@_selectedSync.EntityType</dd>
+
+                                <dt class="col-sm-3">Sync Type:</dt>
+                                <dd class="col-sm-9">@_selectedSync.SyncType</dd>
+
+                                <dt class="col-sm-3">Status:</dt>
+                                <dd class="col-sm-9">@_selectedSync.Status</dd>
+
+                                <dt class="col-sm-3">Start Time:</dt>
+                                <dd class="col-sm-9">@FormatLocalTime(_selectedSync.SyncStartTime, _selectedSync.School?.District?.LocalTimeZone, "F")</dd>
+
+                                <dt class="col-sm-3">End Time:</dt>
+                                <dd class="col-sm-9">@(_selectedSync.SyncEndTime.HasValue ? FormatLocalTime(_selectedSync.SyncEndTime.Value, _selectedSync.School?.District?.LocalTimeZone, "F") : "Not completed")</dd>
+
+                                <dt class="col-sm-3">Records Processed:</dt>
+                                <dd class="col-sm-9">@_selectedSync.RecordsProcessed</dd>
+
+                                <dt class="col-sm-3">Records Failed:</dt>
+                                <dd class="col-sm-9">@_selectedSync.RecordsFailed</dd>
+
+                                <dt class="col-sm-3">Last Sync Timestamp:</dt>
+                                <dd class="col-sm-9">@(_selectedSync.LastSyncTimestamp.HasValue ? FormatLocalTime(_selectedSync.LastSyncTimestamp.Value, _selectedSync.School?.District?.LocalTimeZone, "F") : "N/A")</dd>
+
+                                @if (!string.IsNullOrEmpty(_selectedSync.ErrorMessage))
+                                {
+                                    <dt class="col-sm-3">Error Message:</dt>
+                                    <dd class="col-sm-9">
+                                        <div class="alert alert-danger">
+                                            <pre class="mb-0">@_selectedSync.ErrorMessage</pre>
+                                        </div>
+                                    </dd>
+                                }
+                            </dl>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" @onclick="CloseDetailsModal">Close</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-backdrop show"></div>
+        }
+    }
+</div>
+
+@code {
+    private List<SyncHistory> _syncHistory = new();
+    private List<SyncHistory> _filteredSyncHistory = new();
+    private List<School> _schools = new();
+    private bool _loading = true;
+    private string? _error;
+
+    // Filters
+    private int _selectedSchoolId = 0;
+    private string _selectedEntityType = "";
+    private string _selectedStatus = "";
+    private string _selectedSyncType = "";
+
+    // Details modal
+    private bool _showDetailsModal = false;
+    private SyncHistory? _selectedSync;
+
+    // FR-004: Pagination (50 records per page)
+    private int _currentPage = 1;
+    private const int _pageSize = 50;
+    private int TotalPages => (int)Math.Ceiling(_filteredSyncHistory.Count / (double)_pageSize);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            // Load schools based on user role
+            var schoolsQuery = DbContext.Schools.AsQueryable();
+
+            if (CurrentUser.IsSchoolAdmin && !CurrentUser.IsDistrictAdmin)
+            {
+                // SchoolAdmin: Only show their assigned school
+                if (CurrentUser.SchoolId.HasValue)
+                {
+                    schoolsQuery = schoolsQuery.Where(s => s.SchoolId == CurrentUser.SchoolId.Value);
+                }
+                else
+                {
+                    _error = "Your account is not assigned to a school. Please contact an administrator.";
+                    _loading = false;
+                    return;
+                }
+            }
+            else if (CurrentUser.IsDistrictAdmin && !CurrentUser.IsSuperAdmin)
+            {
+                // DistrictAdmin: Only show schools in their district
+                if (!string.IsNullOrEmpty(CurrentUser.DistrictId))
+                {
+                    schoolsQuery = schoolsQuery.Where(s => s.DistrictId == CurrentUser.DistrictId);
+                }
+                else
+                {
+                    _error = "Your account is not assigned to a district. Please contact an administrator.";
+                    _loading = false;
+                    return;
+                }
+            }
+            // SuperAdmin: Show all schools (no filtering)
+
+            _schools = await schoolsQuery.OrderBy(s => s.Name).ToListAsync();
+
+            // Load sync history for accessible schools
+            var schoolIds = _schools.Select(s => s.SchoolId).ToList();
+
+            _syncHistory = await DbContext.SyncHistory
+                .Include(s => s.School)
+                    .ThenInclude(school => school.District)
+                .Where(s => schoolIds.Contains(s.SchoolId))
+                .OrderByDescending(s => s.SyncStartTime)
+                .Take(100) // Limit to last 100 syncs
+                .ToListAsync();
+
+            FilterData();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to load sync operations: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void FilterData()
+    {
+        var filtered = _syncHistory.AsEnumerable();
+
+        if (_selectedSchoolId > 0)
+        {
+            filtered = filtered.Where(s => s.SchoolId == _selectedSchoolId);
+        }
+
+        if (!string.IsNullOrEmpty(_selectedEntityType))
+        {
+            filtered = filtered.Where(s => s.EntityType == _selectedEntityType);
+        }
+
+        if (!string.IsNullOrEmpty(_selectedStatus))
+        {
+            filtered = filtered.Where(s => s.Status == _selectedStatus);
+        }
+
+        if (!string.IsNullOrEmpty(_selectedSyncType))
+        {
+            var syncType = Enum.Parse<SyncType>(_selectedSyncType);
+            filtered = filtered.Where(s => s.SyncType == syncType);
+        }
+
+        _filteredSyncHistory = filtered.ToList();
+
+        // FR-004: Reset to first page when filters change
+        _currentPage = 1;
+    }
+
+    private async Task RefreshData()
+    {
+        await LoadData();
+    }
+
+    private void StartManualSync()
+    {
+        NavigationManager.NavigateTo("/manual-sync");
+    }
+
+    private void ViewDetails(SyncHistory sync)
+    {
+        _selectedSync = sync;
+        _showDetailsModal = true;
+    }
+
+    private void CloseDetailsModal()
+    {
+        _showDetailsModal = false;
+        _selectedSync = null;
+    }
+
+    private string FormatDuration(TimeSpan duration)
+    {
+        if (duration.TotalHours >= 1)
+        {
+            return $"{duration.TotalHours:F1}h";
+        }
+        else if (duration.TotalMinutes >= 1)
+        {
+            return $"{duration.TotalMinutes:F1}m";
+        }
+        else
+        {
+            return $"{duration.TotalSeconds:F1}s";
+        }
+    }
+
+    private DateTime ConvertToLocalTime(DateTime utcTime, string? timeZoneId)
+    {
+        if (string.IsNullOrEmpty(timeZoneId))
+        {
+            timeZoneId = "Eastern Standard Time"; // Default to Eastern if not specified
+        }
+
+        try
+        {
+            var timeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+            return TimeZoneInfo.ConvertTimeFromUtc(utcTime, timeZone);
+        }
+        catch
+        {
+            // If timezone conversion fails, fall back to Eastern Standard Time
+            var easternZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+            return TimeZoneInfo.ConvertTimeFromUtc(utcTime, easternZone);
+        }
+    }
+
+    private string FormatLocalTime(DateTime utcTime, string? timeZoneId, string format = "g")
+    {
+        var localTime = ConvertToLocalTime(utcTime, timeZoneId);
+        return localTime.ToString(format);
+    }
+
+    // FR-004: Pagination methods
+    private IEnumerable<SyncHistory> GetPagedData()
+    {
+        return _filteredSyncHistory
+            .Skip((_currentPage - 1) * _pageSize)
+            .Take(_pageSize);
+    }
+
+    private int GetStartRecord()
+    {
+        if (_filteredSyncHistory.Count == 0) return 0;
+        return ((_currentPage - 1) * _pageSize) + 1;
+    }
+
+    private int GetEndRecord()
+    {
+        var end = _currentPage * _pageSize;
+        return Math.Min(end, _filteredSyncHistory.Count);
+    }
+
+    private IEnumerable<int> GetPageNumbers()
+    {
+        // Show up to 5 page numbers at a time
+        var maxPagesToShow = 5;
+        var halfMax = maxPagesToShow / 2;
+
+        int startPage = Math.Max(1, _currentPage - halfMax);
+        int endPage = Math.Min(TotalPages, startPage + maxPagesToShow - 1);
+
+        // Adjust start if we're near the end
+        if (endPage - startPage < maxPagesToShow - 1)
+        {
+            startPage = Math.Max(1, endPage - maxPagesToShow + 1);
+        }
+
+        return Enumerable.Range(startPage, endPage - startPage + 1);
+    }
+
+    private void GoToPage(int pageNumber)
+    {
+        _currentPage = Math.Max(1, Math.Min(pageNumber, TotalPages));
+    }
+
+    private void GoToFirstPage()
+    {
+        _currentPage = 1;
+    }
+
+    private void GoToLastPage()
+    {
+        _currentPage = TotalPages;
+    }
+
+    private void GoToPreviousPage()
+    {
+        if (_currentPage > 1)
+        {
+            _currentPage--;
+        }
+    }
+
+    private void GoToNextPage()
+    {
+        if (_currentPage < TotalPages)
+        {
+            _currentPage++;
+        }
+    }
+}

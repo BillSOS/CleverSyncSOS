@@ -1,0 +1,321 @@
+@page "/health"
+@attribute [Authorize(Policy = "SuperAdmin")]
+@using Microsoft.Extensions.Diagnostics.HealthChecks
+@inject HealthCheckService HealthCheckService
+@inject ILogger<Health> Logger
+
+<PageTitle>System Health - CleverSync Admin</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>System Health Status</h1>
+        <button class="btn btn-primary" @onclick="RefreshHealth">
+            <i class="oi oi-reload"></i> Refresh
+        </button>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="text-center my-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2 text-muted">Checking system health...</p>
+        </div>
+    }
+    else if (_error != null)
+    {
+        <div class="alert alert-danger" role="alert">
+            <h4 class="alert-heading">Error</h4>
+            <p>@_error</p>
+            <button class="btn btn-sm btn-outline-danger" @onclick="LoadHealth">Try Again</button>
+        </div>
+    }
+    else if (_healthReport != null)
+    {
+        <!-- Overall Status Card -->
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card border-@GetStatusColor(_healthReport.Status)">
+                    <div class="card-header bg-@GetStatusColor(_healthReport.Status) bg-opacity-10">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div>
+                                <h3 class="mb-1">
+                                    <span class="badge bg-@GetStatusColor(_healthReport.Status)">
+                                        @_healthReport.Status
+                                    </span>
+                                </h3>
+                                <p class="text-muted mb-0">
+                                    Overall System Status
+                                </p>
+                            </div>
+                            <button class="btn btn-sm btn-outline-secondary"
+                                    @onclick="ToggleOverallDetails">
+                                @if (_showOverallDetails)
+                                {
+                                    <i class="oi oi-chevron-top"></i>
+                                    <span>Hide Details</span>
+                                }
+                                else
+                                {
+                                    <i class="oi oi-chevron-bottom"></i>
+                                    <span>Show Details</span>
+                                }
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex align-items-center justify-content-between mb-2">
+                            <div>
+                                <small class="text-muted">
+                                    Last checked: @DateTime.Now.ToString("g")
+                                </small>
+                            </div>
+                            <div class="text-end">
+                                <small class="text-muted">
+                                    Duration: @_healthReport.TotalDuration.TotalMilliseconds.ToString("F0")ms
+                                </small>
+                            </div>
+                        </div>
+
+                        @if (_showOverallDetails)
+                        {
+                            <hr />
+                            <div class="mt-3">
+                                <h6 class="mb-3">Health Checks Performed (@_healthReport.Entries.Count):</h6>
+                                <div class="row">
+                                    @foreach (var entry in _healthReport.Entries)
+                                    {
+                                        <div class="col-md-6 mb-2">
+                                            <div class="d-flex align-items-center">
+                                                <span class="badge bg-@GetStatusColor(entry.Value.Status) me-2">
+                                                    @entry.Value.Status
+                                                </span>
+                                                <span>@entry.Key</span>
+                                            </div>
+                                            @if (!string.IsNullOrEmpty(entry.Value.Description))
+                                            {
+                                                <small class="text-muted ms-4">@entry.Value.Description</small>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Health Check Details -->
+        <div class="row">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Health Check Details</h5>
+                    </div>
+                    <div class="card-body">
+                        @foreach (var entry in _healthReport.Entries)
+                        {
+                            <div class="card mb-3 border-@GetStatusColor(entry.Value.Status)">
+                                <div class="card-header bg-@GetStatusColor(entry.Value.Status) bg-opacity-10">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <h6 class="mb-0">
+                                            <span class="badge bg-@GetStatusColor(entry.Value.Status)">
+                                                @entry.Value.Status
+                                            </span>
+                                            @entry.Key
+                                        </h6>
+                                        @if (entry.Value.Status != HealthStatus.Healthy)
+                                        {
+                                            <button class="btn btn-sm btn-outline-primary"
+                                                    @onclick="() => ToggleDetails(entry.Key)">
+                                                @if (_expandedChecks.Contains(entry.Key))
+                                                {
+                                                    <i class="oi oi-chevron-top"></i>
+                                                    <span>Hide Details</span>
+                                                }
+                                                else
+                                                {
+                                                    <i class="oi oi-chevron-bottom"></i>
+                                                    <span>Show Details</span>
+                                                }
+                                            </button>
+                                        }
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    @if (!string.IsNullOrEmpty(entry.Value.Description))
+                                    {
+                                        <p class="mb-2"><strong>Description:</strong> @entry.Value.Description</p>
+                                    }
+                                    <p class="mb-0 text-muted">
+                                        <small>Duration: @entry.Value.Duration.TotalMilliseconds.ToString("F0")ms</small>
+                                    </p>
+
+                                    @if (entry.Value.Status != HealthStatus.Healthy && _expandedChecks.Contains(entry.Key))
+                                    {
+                                        <hr />
+                                        @if (entry.Value.Exception != null)
+                                        {
+                                            <div class="alert alert-danger mt-2">
+                                                <h6>Exception:</h6>
+                                                <pre class="mb-0">@entry.Value.Exception.Message</pre>
+                                            </div>
+                                        }
+
+                                        @if (entry.Value.Data != null && entry.Value.Data.Any())
+                                        {
+                                            <div class="mt-3">
+                                                <h6>Additional Information:</h6>
+                                                <table class="table table-sm table-bordered">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>Property</th>
+                                                            <th>Value</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        @foreach (var data in entry.Value.Data)
+                                                        {
+                                                            <tr>
+                                                                <td><code>@data.Key</code></td>
+                                                                <td>@FormatDataValue(data.Value)</td>
+                                                            </tr>
+                                                        }
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        }
+                                    }
+                                    else if (entry.Value.Status == HealthStatus.Healthy && entry.Value.Data != null && entry.Value.Data.Any())
+                                    {
+                                        <div class="mt-2">
+                                            <button class="btn btn-sm btn-outline-secondary"
+                                                    @onclick="() => ToggleDetails(entry.Key)">
+                                                @if (_expandedChecks.Contains(entry.Key))
+                                                {
+                                                    <span>Hide Detailed Info</span>
+                                                }
+                                                else
+                                                {
+                                                    <span>Show Detailed Info</span>
+                                                }
+                                            </button>
+                                        </div>
+
+                                        @if (_expandedChecks.Contains(entry.Key))
+                                        {
+                                            <div class="mt-3">
+                                                <table class="table table-sm table-bordered">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>Property</th>
+                                                            <th>Value</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        @foreach (var data in entry.Value.Data)
+                                                        {
+                                                            <tr>
+                                                                <td><code>@data.Key</code></td>
+                                                                <td>@FormatDataValue(data.Value)</td>
+                                                            </tr>
+                                                        }
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        }
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private HealthReport? _healthReport;
+    private bool _loading = true;
+    private string? _error;
+    private HashSet<string> _expandedChecks = new();
+    private bool _showOverallDetails = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadHealth();
+    }
+
+    private async Task LoadHealth()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            _healthReport = await HealthCheckService.CheckHealthAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to load health status: {ex.Message}";
+            Logger.LogError(ex, "Failed to load health status");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task RefreshHealth()
+    {
+        await LoadHealth();
+    }
+
+    private void ToggleDetails(string checkName)
+    {
+        if (_expandedChecks.Contains(checkName))
+        {
+            _expandedChecks.Remove(checkName);
+        }
+        else
+        {
+            _expandedChecks.Add(checkName);
+        }
+    }
+
+    private void ToggleOverallDetails()
+    {
+        _showOverallDetails = !_showOverallDetails;
+    }
+
+    private string GetStatusColor(HealthStatus status)
+    {
+        return status switch
+        {
+            HealthStatus.Healthy => "success",
+            HealthStatus.Degraded => "warning",
+            HealthStatus.Unhealthy => "danger",
+            _ => "secondary"
+        };
+    }
+
+    private string FormatDataValue(object value)
+    {
+        if (value == null)
+            return "null";
+
+        if (value is DateTime dt)
+            return dt.ToString("yyyy-MM-dd HH:mm:ss UTC");
+
+        if (value is bool b)
+            return b ? "✓ Yes" : "✗ No";
+
+        if (value is double d)
+            return d.ToString("F2");
+
+        return value.ToString() ?? string.Empty;
+    }
+}

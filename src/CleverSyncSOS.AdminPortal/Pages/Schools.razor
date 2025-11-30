@@ -1,0 +1,217 @@
+@page "/schools"
+@attribute [Authorize(Policy = "SchoolAdmin")]
+@using CleverSyncSOS.Core.Database.SessionDb
+@using CleverSyncSOS.Core.Database.SessionDb.Entities
+@using CleverSyncSOS.AdminPortal.Services
+@using Microsoft.EntityFrameworkCore
+@inject SessionDbContext DbContext
+@inject ICurrentUserService CurrentUser
+@inject NavigationManager NavigationManager
+
+<PageTitle>Schools - CleverSync Admin</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>Schools</h1>
+        @if (CurrentUser.IsDistrictAdmin)
+        {
+            <button class="btn btn-primary" @onclick="RefreshSchools">
+                <i class="oi oi-reload"></i> Refresh
+            </button>
+        }
+    </div>
+
+    @if (_loading)
+    {
+        <div class="text-center my-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2 text-muted">Loading schools...</p>
+        </div>
+    }
+    else if (_error != null)
+    {
+        <div class="alert alert-danger" role="alert">
+            <h4 class="alert-heading">Error</h4>
+            <p>@_error</p>
+            <button class="btn btn-sm btn-outline-danger" @onclick="LoadSchools">Try Again</button>
+        </div>
+    }
+    else if (_schools == null || !_schools.Any())
+    {
+        <div class="alert alert-info" role="alert">
+            <h4 class="alert-heading">No Schools Found</h4>
+            <p>No schools are currently configured for your account.</p>
+        </div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>School Name</th>
+                        <th>District</th>
+                        <th>School Prefix</th>
+                        <th>Status</th>
+                        <th>Database</th>
+                        <th>Sync Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var school in _schools)
+                    {
+                        <tr>
+                            <td>
+                                <strong>@school.Name</strong>
+                            </td>
+                            <td>
+                                <span class="text-muted">@school.District?.Name</span>
+                            </td>
+                            <td>
+                                <span class="badge bg-secondary">@school.SchoolPrefix</span>
+                            </td>
+                            <td>
+                                @if (school.IsActive)
+                                {
+                                    <span class="badge bg-success">Active</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-secondary">Inactive</span>
+                                }
+                            </td>
+                            <td>
+                                <span class="text-muted small">@(school.DatabaseName ?? "Not configured")</span>
+                            </td>
+                            <td>
+                                @if (school.RequiresFullSync)
+                                {
+                                    <span class="badge bg-warning text-dark">
+                                        <i class="oi oi-warning"></i> Full Sync Required
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted small">Normal</span>
+                                }
+                            </td>
+                            <td>
+                                <div class="btn-group" role="group">
+                                    <button class="btn btn-sm btn-primary" @onclick="() => ViewSchoolDetails(school.SchoolId)" title="View Details">
+                                        <i class="oi oi-eye"></i> Details
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-primary" @onclick="() => ViewSyncHistory(school.SchoolId)" title="View Sync History">
+                                        <i class="oi oi-document"></i> History
+                                    </button>
+                                    @if (CurrentUser.IsDistrictAdmin || CurrentUser.IsSuperAdmin)
+                                    {
+                                        <button class="btn btn-sm btn-outline-primary" @onclick="() => ConfigureSchool(school.SchoolId)" title="Configure School">
+                                            <i class="oi oi-cog"></i> Configure
+                                        </button>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="mt-3">
+            <p class="text-muted">
+                Showing @_schools.Count school@(_schools.Count != 1 ? "s" : "")
+            </p>
+        </div>
+    }
+</div>
+
+@code {
+    private List<School>? _schools;
+    private bool _loading = true;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSchools();
+    }
+
+    private async Task LoadSchools()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            var query = DbContext.Schools
+                .Include(s => s.District)
+                .AsQueryable();
+
+            // Apply scope filtering based on user role
+            if (CurrentUser.IsSchoolAdmin && !CurrentUser.IsDistrictAdmin)
+            {
+                // SchoolAdmin: Only show their assigned school
+                if (CurrentUser.SchoolId.HasValue)
+                {
+                    query = query.Where(s => s.SchoolId == CurrentUser.SchoolId.Value);
+                }
+                else
+                {
+                    _error = "Your account is not assigned to a school. Please contact an administrator.";
+                    _loading = false;
+                    return;
+                }
+            }
+            else if (CurrentUser.IsDistrictAdmin && !CurrentUser.IsSuperAdmin)
+            {
+                // DistrictAdmin: Only show schools in their district
+                if (!string.IsNullOrEmpty(CurrentUser.DistrictId))
+                {
+                    query = query.Where(s => s.DistrictId == CurrentUser.DistrictId);
+                }
+                else
+                {
+                    _error = "Your account is not assigned to a district. Please contact an administrator.";
+                    _loading = false;
+                    return;
+                }
+            }
+            // SuperAdmin: Show all schools (no filtering)
+
+            _schools = await query
+                .OrderBy(s => s.District!.Name)
+                .ThenBy(s => s.Name)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to load schools: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task RefreshSchools()
+    {
+        await LoadSchools();
+    }
+
+    private void ViewSchoolDetails(int schoolId)
+    {
+        NavigationManager.NavigateTo($"/schools/{schoolId}");
+    }
+
+    private void ViewSyncHistory(int schoolId)
+    {
+        NavigationManager.NavigateTo($"/schools/{schoolId}/sync-history");
+    }
+
+    private void ConfigureSchool(int schoolId)
+    {
+        NavigationManager.NavigateTo($"/schools/{schoolId}/config");
+    }
+}

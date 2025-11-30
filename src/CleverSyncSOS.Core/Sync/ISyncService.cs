@@ -24,9 +24,10 @@ public interface ISyncService
     /// Source: DataModel.md - Sync Orchestration Flow (Timer/Manual Trigger entry point)
     /// </summary>
     /// <param name="forceFullSync">If true, forces full sync for all schools regardless of RequiresFullSync flag</param>
+    /// <param name="progress">Optional progress reporter for real-time updates</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Summary of sync results across all districts</returns>
-    Task<SyncSummary> SyncAllDistrictsAsync(bool forceFullSync = false, CancellationToken cancellationToken = default);
+    Task<SyncSummary> SyncAllDistrictsAsync(bool forceFullSync = false, IProgress<SyncProgress>? progress = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Synchronizes a specific district and all its active schools.
@@ -34,9 +35,10 @@ public interface ISyncService
     /// </summary>
     /// <param name="districtId">District ID from SessionDb</param>
     /// <param name="forceFullSync">If true, forces full sync for all schools in this district</param>
+    /// <param name="progress">Optional progress reporter for real-time updates</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Summary of sync results for the district</returns>
-    Task<SyncSummary> SyncDistrictAsync(int districtId, bool forceFullSync = false, CancellationToken cancellationToken = default);
+    Task<SyncSummary> SyncDistrictAsync(int districtId, bool forceFullSync = false, IProgress<SyncProgress>? progress = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Synchronizes a specific school (students and teachers).
@@ -47,9 +49,10 @@ public interface ISyncService
     /// </summary>
     /// <param name="schoolId">School ID from SessionDb</param>
     /// <param name="forceFullSync">If true, forces full sync regardless of RequiresFullSync flag</param>
+    /// <param name="progress">Optional progress reporter for real-time updates</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Summary of sync results for the school</returns>
-    Task<SyncResult> SyncSchoolAsync(int schoolId, bool forceFullSync = false, CancellationToken cancellationToken = default);
+    Task<SyncResult> SyncSchoolAsync(int schoolId, bool forceFullSync = false, IProgress<SyncProgress>? progress = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Retrieves sync history for a school.
@@ -107,4 +110,19 @@ public class SyncResult
     public DateTime StartTime { get; set; }
     public DateTime EndTime { get; set; }
     public TimeSpan Duration => EndTime - StartTime;
+}
+
+/// <summary>
+/// Real-time progress update for sync operations.
+/// Used with IProgress<SyncProgress> for SignalR broadcasting.
+/// </summary>
+public class SyncProgress
+{
+    public int PercentComplete { get; set; } // 0-100
+    public string CurrentOperation { get; set; } = string.Empty; // e.g., "Fetching students..."
+    public int StudentsProcessed { get; set; }
+    public int StudentsFailed { get; set; }
+    public int TeachersProcessed { get; set; }
+    public int TeachersFailed { get; set; }
+    public TimeSpan? EstimatedTimeRemaining { get; set; }
 }
