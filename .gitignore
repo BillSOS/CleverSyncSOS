@@ -366,3 +366,11 @@ FodyWeavers.xsd
 # These files may contain actual IDs, connection strings, and environment-specific data
 *.md
 *.sql
+# Environment files
+.env
+.env.*
+*.env
+
+# Azure Bicep parameters (may contain secrets)
+*.parameters.json
+!*.parameters.example.json

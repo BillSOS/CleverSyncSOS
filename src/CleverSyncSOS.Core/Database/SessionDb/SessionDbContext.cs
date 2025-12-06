@@ -16,6 +16,9 @@ public class SessionDbContext : DbContext
     public DbSet<District> Districts { get; set; } = null!;
     public DbSet<School> Schools { get; set; } = null!;
     public DbSet<SyncHistory> SyncHistory { get; set; } = null!;
+    public DbSet<SyncChangeDetail> SyncChangeDetails { get; set; } = null!;
+    public DbSet<User> Users { get; set; } = null!;
+    public DbSet<AuditLog> AuditLogs { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -28,7 +31,7 @@ public class SessionDbContext : DbContext
             entity.HasIndex(e => e.CleverDistrictId).IsUnique();
             entity.Property(e => e.CleverDistrictId).IsRequired().HasMaxLength(50);
             entity.Property(e => e.Name).IsRequired().HasMaxLength(200);
-            entity.Property(e => e.KeyVaultSecretPrefix).HasMaxLength(100);
+            entity.Property(e => e.KeyVaultDistrictPrefix).IsRequired().HasMaxLength(100);
             entity.Property(e => e.CreatedAt).IsRequired();
             entity.Property(e => e.UpdatedAt).IsRequired();
 
@@ -48,8 +51,8 @@ public class SessionDbContext : DbContext
             entity.Property(e => e.DistrictId).IsRequired().HasMaxLength(50);
             entity.Property(e => e.CleverSchoolId).IsRequired().HasMaxLength(50);
             entity.Property(e => e.Name).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.KeyVaultSchoolPrefix).IsRequired().HasMaxLength(100);
             entity.Property(e => e.DatabaseName).HasMaxLength(100);
-            entity.Property(e => e.KeyVaultConnectionStringSecretName).HasMaxLength(200);
             entity.Property(e => e.IsActive).IsRequired().HasDefaultValue(true);
             entity.Property(e => e.RequiresFullSync).IsRequired().HasDefaultValue(false);
             entity.Property(e => e.CreatedAt).IsRequired();
@@ -79,6 +82,88 @@ public class SessionDbContext : DbContext
             entity.HasIndex(e => new { e.SchoolId, e.EntityType, e.SyncEndTime });
 
             // Foreign key to School is configured via the School entity
+        });
+
+        // Configure SyncChangeDetail entity
+        modelBuilder.Entity<SyncChangeDetail>(entity =>
+        {
+            entity.HasKey(e => e.ChangeDetailId);
+            entity.Property(e => e.EntityType).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.EntityId).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.EntityName).IsRequired().HasMaxLength(500);
+            entity.Property(e => e.ChangeType).IsRequired().HasMaxLength(20);
+            entity.Property(e => e.FieldsChanged).IsRequired().HasMaxLength(1000);
+            entity.Property(e => e.ChangedAt).IsRequired();
+
+            // Create indexes for efficient queries
+            entity.HasIndex(e => new { e.SyncId, e.EntityType });
+            entity.HasIndex(e => e.ChangeType);
+            entity.HasIndex(e => e.ChangedAt);
+
+            // Configure relationship with SyncHistory
+            entity.HasOne(c => c.SyncHistory)
+                .WithMany()
+                .HasForeignKey(c => c.SyncId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Configure User entity
+        modelBuilder.Entity<User>(entity =>
+        {
+            entity.HasKey(e => e.UserId);
+            entity.HasIndex(e => e.Email).IsUnique();
+            entity.HasIndex(e => e.CleverUserId);
+            entity.HasIndex(e => new { e.Role, e.IsActive });
+            entity.HasIndex(e => e.SchoolId);
+            entity.HasIndex(e => e.DistrictId);
+            entity.HasIndex(e => e.AuthenticationSource);
+
+            entity.Property(e => e.Email).IsRequired().HasMaxLength(256);
+            entity.Property(e => e.DisplayName).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.Role).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.AuthenticationSource).IsRequired().HasMaxLength(20);
+            entity.Property(e => e.DistrictId).HasMaxLength(50);
+            entity.Property(e => e.CleverUserId).HasMaxLength(100);
+            entity.Property(e => e.IsActive).IsRequired().HasDefaultValue(true);
+            entity.Property(e => e.CreatedAt).IsRequired();
+            entity.Property(e => e.CreatedBy).HasMaxLength(256);
+
+            // Configure relationship with School
+            entity.HasOne(u => u.School)
+                .WithMany()
+                .HasForeignKey(u => u.SchoolId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Configure relationship with District
+            entity.HasOne(u => u.District)
+                .WithMany()
+                .HasForeignKey(u => u.DistrictId)
+                .HasPrincipalKey(d => d.CleverDistrictId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // Configure AuditLog entity
+        modelBuilder.Entity<AuditLog>(entity =>
+        {
+            entity.HasKey(e => e.AuditLogId);
+            entity.HasIndex(e => e.Timestamp);
+            entity.HasIndex(e => e.UserId);
+            entity.HasIndex(e => new { e.Action, e.Success });
+            entity.HasIndex(e => e.IpAddress);
+
+            entity.Property(e => e.Timestamp).IsRequired();
+            entity.Property(e => e.UserIdentifier).HasMaxLength(256);
+            entity.Property(e => e.Action).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.IpAddress).HasMaxLength(45); // IPv6 max length
+            entity.Property(e => e.UserAgent).HasMaxLength(500);
+            entity.Property(e => e.Success).IsRequired();
+            entity.Property(e => e.Resource).HasMaxLength(200);
+
+            // Configure relationship with User
+            entity.HasOne(a => a.User)
+                .WithMany()
+                .HasForeignKey(a => a.UserId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
     }
 }

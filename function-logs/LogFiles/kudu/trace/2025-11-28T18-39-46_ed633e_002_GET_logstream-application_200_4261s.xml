@@ -1,0 +1,8 @@
+<step title="Incoming Request" date="2025-11-28T18:39:46.373" instance="ed633e" url="/logstream/application" method="GET" type="request" pid="4840,2,7" Connection="Keep-Alive" Accept-Encoding="identity" Authorization="Bas..." Host="cleversyncprod-fn.scm.azurewebsites.net" User-Agent="AZURECLI/2.79.0 (MSI)" x-ms-client-request-id="95657c00-cc89-11f0-beb1-e02e0bc384b1" X-ARR-LOG-ID="95657c00-cc89-11f0-beb1-e02e0bc384b1" CLIENT-IP="208.102.8.31:61204" X-SITE-DEPLOYMENT-ID="cleversyncprod-fn" WAS-DEFAULT-HOSTNAME="cleversyncprod-fn.scm.azurewebsites.net" X-Forwarded-Proto="https" X-AppService-Proto="https" X-Forwarded-TlsVersion="1.3" X-WAWS-Unencoded-URL="/logstream/application" X-MS-COLDSTART="1" >
+  <step title="LogStreamHandler.BeginProcessRequest" date="2025-11-28T18:39:46.782" >
+    <step title="LockFile &apos;C:\home\site\locks\hooks.lock&apos; acquired" date="2025-11-28T18:39:47.065" /><!-- duration: 14ms -->
+    <step title="LockFile &apos;C:\home\site\locks\hooks.lock&apos; released" date="2025-11-28T18:39:47.157" /><!-- duration: 16ms -->
+  </step><!-- duration: 422ms -->
+  <step title="LogStreamHandler.EndProcessRequest" date="2025-11-28T19:50:47.740" /><!-- duration: 16ms -->
+  <step title="Outgoing response" date="2025-11-28T19:50:47.803" type="response" statusCode="200" statusText="OK" Server="Microsoft-IIS/10.0" Cache-Control="private" X-AspNet-Version="4.0.30319" Content-Type="text/plain; charset=utf-8" /><!-- duration: 16ms -->
+</step><!-- duration: 4261461ms -->

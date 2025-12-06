@@ -98,12 +98,14 @@ public class SyncResult
     public SyncType SyncType { get; set; }
 
     // Student sync stats
-    public int StudentsProcessed { get; set; }
+    public int StudentsProcessed { get; set; } // Total students examined
+    public int StudentsUpdated { get; set; } // Students that actually changed
     public int StudentsFailed { get; set; }
     public int StudentsDeleted { get; set; } // For full sync hard-delete
 
     // Teacher sync stats
-    public int TeachersProcessed { get; set; }
+    public int TeachersProcessed { get; set; } // Total teachers examined
+    public int TeachersUpdated { get; set; } // Teachers that actually changed
     public int TeachersFailed { get; set; }
     public int TeachersDeleted { get; set; } // For full sync hard-delete
 
@@ -120,9 +122,11 @@ public class SyncProgress
 {
     public int PercentComplete { get; set; } // 0-100
     public string CurrentOperation { get; set; } = string.Empty; // e.g., "Fetching students..."
-    public int StudentsProcessed { get; set; }
+    public int StudentsProcessed { get; set; } // Total students examined
+    public int StudentsUpdated { get; set; } // Students that actually changed
     public int StudentsFailed { get; set; }
-    public int TeachersProcessed { get; set; }
+    public int TeachersProcessed { get; set; } // Total teachers examined
+    public int TeachersUpdated { get; set; } // Teachers that actually changed
     public int TeachersFailed { get; set; }
     public TimeSpan? EstimatedTimeRemaining { get; set; }
 }

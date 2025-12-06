@@ -7,17 +7,6 @@
             <h5 class="mb-0">Sync Progress</h5>
         </div>
         <div class="card-body">
-            <div class="progress mb-3" style="height: 30px;">
-                <div class="progress-bar progress-bar-striped progress-bar-animated"
-                     role="progressbar"
-                     style="width: @(Progress.PercentComplete)%"
-                     aria-valuenow="@Progress.PercentComplete"
-                     aria-valuemin="0"
-                     aria-valuemax="100">
-                    @Progress.PercentComplete%
-                </div>
-            </div>
-
             <div class="row">
                 <div class="col-md-6">
                     <p class="mb-2">
@@ -36,7 +25,7 @@
                 <div class="col-md-6">
                     <p class="mb-2">
                         <strong>Students:</strong>
-                        @Progress.StudentsProcessed processed
+                        @Progress.StudentsProcessed processing, @Progress.StudentsUpdated updated
                         @if (Progress.StudentsFailed > 0)
                         {
                             <span class="text-danger">(@Progress.StudentsFailed failed)</span>
@@ -44,7 +33,7 @@
                     </p>
                     <p class="mb-2">
                         <strong>Teachers:</strong>
-                        @Progress.TeachersProcessed processed
+                        @Progress.TeachersProcessed processing, @Progress.TeachersUpdated updated
                         @if (Progress.TeachersFailed > 0)
                         {
                             <span class="text-danger">(@Progress.TeachersFailed failed)</span>

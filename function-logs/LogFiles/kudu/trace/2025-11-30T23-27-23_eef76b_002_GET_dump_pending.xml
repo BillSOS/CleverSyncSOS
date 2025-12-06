@@ -1,0 +1,3 @@
+<step title="Incoming Request" date="2025-11-30T23:27:23.589" instance="eef76b" url="/dump" method="GET" type="request" pid="15560,2,9" Accept-Encoding="identity" Authorization="Bas..." Host="cleversyncsos.scm.azurewebsites.net" User-Agent="AZURECLI/2.79.0 (MSI)" x-ms-client-request-id="1e177d38-ce44-11f0-8117-e02e0bc384b1" X-ARR-LOG-ID="1e177d38-ce44-11f0-8117-e02e0bc384b1" CLIENT-IP="208.102.8.31:64548" X-SITE-DEPLOYMENT-ID="CleverSyncSOS" WAS-DEFAULT-HOSTNAME="cleversyncsos.scm.azurewebsites.net" X-Forwarded-Proto="https" X-AppService-Proto="https" X-Forwarded-TlsVersion="1.3" X-WAWS-Unencoded-URL="/dump" >
+  <step title="Cleanup Xml Logs" date="2025-11-30T23:27:23.589" /><!-- duration: 16ms -->
+  <step title="ZipStreamContent.OnZip" date="2025-11-30T23:27:25.261" 

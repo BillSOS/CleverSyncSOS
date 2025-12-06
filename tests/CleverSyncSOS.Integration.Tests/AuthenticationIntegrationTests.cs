@@ -136,7 +136,7 @@ public class AuthenticationIntegrationTests
     // NOTE: The following test is commented out as it requires actual Azure Key Vault
     // and Clever API credentials. Uncomment and configure when testing in a real environment.
 
-    /*
+    
     /// <summary>
     /// Test: End-to-end authentication with real Clever API.
     /// Source: FR-001, FR-002, FR-003 - OAuth authentication with Key Vault
@@ -172,5 +172,5 @@ public class AuthenticationIntegrationTests
         Assert.NotNull(authService.GetLastSuccessfulAuthTime());
         Assert.Null(authService.GetLastError());
     }
-    */
+    
 }

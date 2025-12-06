@@ -84,11 +84,25 @@ public class SyncCoordinatorService : ISyncCoordinatorService
                 progress.PercentComplete = p.PercentComplete;
                 progress.CurrentOperation = p.CurrentOperation;
                 progress.StudentsProcessed = p.StudentsProcessed;
+                progress.StudentsUpdated = p.StudentsUpdated;
                 progress.StudentsFailed = p.StudentsFailed;
                 progress.TeachersProcessed = p.TeachersProcessed;
+                progress.TeachersUpdated = p.TeachersUpdated;
                 progress.TeachersFailed = p.TeachersFailed;
                 progress.EstimatedTimeRemaining = p.EstimatedTimeRemaining;
-                _ = BroadcastProgressAsync(scope, progress); // Fire and forget
+
+                // Broadcast progress update synchronously to ensure delivery
+                Task.Run(async () =>
+                {
+                    try
+                    {
+                        await BroadcastProgressAsync(scope, progress);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to broadcast progress update for scope {Scope}", scope);
+                    }
+                }).Wait(TimeSpan.FromSeconds(1)); // Wait briefly to ensure broadcast completes
             });
 
             SyncResultViewModel result;
@@ -149,11 +163,20 @@ public class SyncCoordinatorService : ISyncCoordinatorService
             await _auditLogService.LogEventAsync("SyncFailed", false, userId, null, scope,
                 $"Sync failed: {ex.Message}");
 
+            // Build detailed error message including inner exceptions
+            var errorDetails = ex.Message;
+            if (ex.InnerException != null)
+            {
+                errorDetails += $" | Inner: {ex.InnerException.Message}";
+            }
+            // Add exception type for better debugging
+            errorDetails = $"[{ex.GetType().Name}] {errorDetails}";
+
             var errorResult = new SyncResultViewModel
             {
                 Success = false,
                 Scope = scope,
-                ErrorMessage = ex.Message,
+                ErrorMessage = errorDetails,
                 CompletedAt = DateTime.UtcNow
             };
 

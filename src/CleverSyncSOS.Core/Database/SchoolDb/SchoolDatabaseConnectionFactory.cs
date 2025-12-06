@@ -24,23 +24,27 @@ public class SchoolDatabaseConnectionFactory
 
     /// <summary>
     /// Creates a SchoolDbContext for the specified school using its connection string from Key Vault.
+    /// Uses the school's KeyVaultSchoolPrefix to retrieve the connection string secret.
     /// </summary>
-    /// <param name="school">The school entity containing connection string reference.</param>
+    /// <param name="school">The school entity containing KeyVaultSchoolPrefix for secret retrieval.</param>
     /// <returns>A configured SchoolDbContext instance.</returns>
     public async Task<SchoolDbContext> CreateSchoolContextAsync(School school)
     {
-        if (string.IsNullOrEmpty(school.KeyVaultConnectionStringSecretName))
+        if (string.IsNullOrEmpty(school.KeyVaultSchoolPrefix))
         {
-            throw new InvalidOperationException($"School {school.Name} (ID: {school.SchoolId}) does not have a Key Vault connection string secret name configured.");
+            throw new InvalidOperationException($"School {school.Name} (ID: {school.SchoolId}) does not have a KeyVaultSchoolPrefix configured.");
         }
 
         // FR-010: Log secret name retrieval (safe - no connection string value)
-        _logger.LogInformation("Retrieving connection string for school {SchoolName} from Key Vault",
-            school.Name);
+        _logger.LogInformation("Retrieving connection string for school {SchoolName} (KeyVaultPrefix: {KeyVaultSchoolPrefix}) from Key Vault",
+            school.Name, school.KeyVaultSchoolPrefix);
 
         try
         {
-            var connectionString = await _credentialStore.GetSecretAsync(school.KeyVaultConnectionStringSecretName);
+            // Use new naming convention: {KeyVaultSchoolPrefix}--ConnectionString
+            var connectionString = await _credentialStore.GetSchoolSecretAsync(
+                school.KeyVaultSchoolPrefix,
+                Configuration.KeyVaultSecretNaming.School.ConnectionString);
 
             if (string.IsNullOrEmpty(connectionString))
             {

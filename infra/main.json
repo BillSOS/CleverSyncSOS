@@ -4,8 +4,8 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.26.170.59333",
-      "templateHash": "1811899013105864501"
+      "version": "0.38.33.27573",
+      "templateHash": "16683596654783889733"
     }
   },
   "parameters": {
@@ -22,13 +22,40 @@
       "metadata": {
         "description": "Resource name prefix (e.g., \"cleversync\")"
       }
+    },
+    "environment": {
+      "type": "string",
+      "defaultValue": "prod",
+      "metadata": {
+        "description": "Environment name (e.g., \"dev\", \"staging\", \"prod\")"
+      }
+    },
+    "sqlAdminLogin": {
+      "type": "securestring",
+      "metadata": {
+        "description": "SQL Server administrator login"
+      }
+    },
+    "sqlAdminPassword": {
+      "type": "securestring",
+      "metadata": {
+        "description": "SQL Server administrator password"
+      }
     }
   },
   "variables": {
     "storageAccountName": "[toLower(format('cs{0}', uniqueString(resourceGroup().id)))]",
     "appInsightsName": "[format('{0}-ai', parameters('prefix'))]",
     "functionAppName": "[format('{0}-fn', parameters('prefix'))]",
-    "keyVaultName": "[format('{0}-kv', parameters('prefix'))]"
+    "keyVaultName": "[format('{0}-kv', parameters('prefix'))]",
+    "sqlServerName": "[format('{0}-sql-{1}', parameters('prefix'), uniqueString(resourceGroup().id))]",
+    "sessionDbName": "SessionDb",
+    "commonTags": {
+      "Product": "CleverSyncSOS",
+      "Environment": "[parameters('environment')]",
+      "ManagedBy": "Bicep",
+      "Repository": "CleverSyncSOS"
+    }
   },
   "resources": [
     {
@@ -37,6 +64,7 @@
       "name": "[variables('appInsightsName')]",
       "location": "[parameters('location')]",
       "kind": "web",
+      "tags": "[variables('commonTags')]",
       "properties": {
         "Application_Type": "web"
       }
@@ -50,6 +78,7 @@
         "name": "Standard_LRS"
       },
       "kind": "StorageV2",
+      "tags": "[variables('commonTags')]",
       "properties": {
         "allowBlobPublicAccess": false,
         "minimumTlsVersion": "TLS1_2",
@@ -57,17 +86,86 @@
       }
     },
     {
+      "type": "Microsoft.Sql/servers",
+      "apiVersion": "2023-05-01-preview",
+      "name": "[variables('sqlServerName')]",
+      "location": "[parameters('location')]",
+      "tags": "[variables('commonTags')]",
+      "properties": {
+        "administratorLogin": "[parameters('sqlAdminLogin')]",
+        "administratorLoginPassword": "[parameters('sqlAdminPassword')]",
+        "version": "12.0",
+        "minimalTlsVersion": "1.2",
+        "publicNetworkAccess": "Enabled"
+      }
+    },
+    {
+      "type": "Microsoft.Sql/servers/elasticPools",
+      "apiVersion": "2023-05-01-preview",
+      "name": "[format('{0}/{1}', variables('sqlServerName'), 'SOS-Pool')]",
+      "location": "[parameters('location')]",
+      "tags": "[variables('commonTags')]",
+      "sku": {
+        "name": "StandardPool",
+        "tier": "Standard",
+        "capacity": 50
+      },
+      "properties": {
+        "perDatabaseSettings": {
+          "minCapacity": 0,
+          "maxCapacity": 50
+        },
+        "maxSizeBytes": 53687091200,
+        "zoneRedundant": false
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Sql/servers', variables('sqlServerName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Sql/servers/databases",
+      "apiVersion": "2023-05-01-preview",
+      "name": "[format('{0}/{1}', variables('sqlServerName'), variables('sessionDbName'))]",
+      "location": "[parameters('location')]",
+      "tags": "[variables('commonTags')]",
+      "sku": {
+        "name": "ElasticPool",
+        "tier": "Standard"
+      },
+      "properties": {
+        "elasticPoolId": "[resourceId('Microsoft.Sql/servers/elasticPools', variables('sqlServerName'), 'SOS-Pool')]",
+        "collation": "SQL_Latin1_General_CP1_CI_AS",
+        "catalogCollation": "SQL_Latin1_General_CP1_CI_AS"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Sql/servers/elasticPools', variables('sqlServerName'), 'SOS-Pool')]",
+        "[resourceId('Microsoft.Sql/servers', variables('sqlServerName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Sql/servers/firewallRules",
+      "apiVersion": "2023-05-01-preview",
+      "name": "[format('{0}/{1}', variables('sqlServerName'), 'AllowAzureServices')]",
+      "properties": {
+        "startIpAddress": "0.0.0.0",
+        "endIpAddress": "0.0.0.0"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Sql/servers', variables('sqlServerName'))]"
+      ]
+    },
+    {
       "type": "Microsoft.Web/sites",
       "apiVersion": "2022-03-01",
       "name": "[variables('functionAppName')]",
       "location": "[parameters('location')]",
       "kind": "functionapp,linux",
+      "tags": "[variables('commonTags')]",
       "identity": {
         "type": "SystemAssigned"
       },
       "properties": {
         "siteConfig": {
-          "linuxFxVersion": "DOTNET-ISOLATED|8.0",
           "appSettings": [
             {
               "name": "FUNCTIONS_WORKER_RUNTIME",
@@ -87,6 +185,7 @@
       "apiVersion": "2022-07-01",
       "name": "[variables('keyVaultName')]",
       "location": "[parameters('location')]",
+      "tags": "[variables('commonTags')]",
       "properties": {
         "tenantId": "[subscription().tenantId]",
         "sku": {
@@ -113,6 +212,18 @@
       ]
     },
     {
+      "type": "Microsoft.KeyVault/vaults/secrets",
+      "apiVersion": "2022-07-01",
+      "name": "[format('{0}/{1}', variables('keyVaultName'), 'CleverSyncSOS--SessionDb--ConnectionString')]",
+      "properties": {
+        "value": "[format('Server=tcp:{0},1433;Initial Catalog={1};Persist Security Info=False;User ID={2};Password={3};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;', reference(resourceId('Microsoft.Sql/servers', variables('sqlServerName')), '2023-05-01-preview').fullyQualifiedDomainName, variables('sessionDbName'), parameters('sqlAdminLogin'), parameters('sqlAdminPassword'))]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]",
+        "[resourceId('Microsoft.Sql/servers', variables('sqlServerName'))]"
+      ]
+    },
+    {
       "type": "Microsoft.Web/sites/config",
       "apiVersion": "2022-03-01",
       "name": "[format('{0}/{1}', variables('functionAppName'), 'appsettings')]",
@@ -122,14 +233,28 @@
         "WEBSITE_CONTENTSHARE": "[toLower(variables('functionAppName'))]",
         "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
         "FUNCTIONS_EXTENSION_VERSION": "~4",
-        "APPLICATIONINSIGHTS_CONNECTION_STRING": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').connectionString]",
-        "KEYVAULT_URI": "[reference(resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName')), '2022-07-01').vaultUri]"
+        "APPLICATIONINSIGHTS_CONNECTION_STRING": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').ConnectionString]",
+        "KEYVAULT_URI": "[reference(resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName')), '2022-07-01').vaultUri]",
+        "AzureKeyVault__VaultUri": "[reference(resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName')), '2022-07-01').vaultUri]",
+        "CleverAuth__KeyVaultUri": "[reference(resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName')), '2022-07-01').vaultUri]",
+        "CleverAuth__ClientIdSecretName": "CleverSyncSOS--Clever--ClientId",
+        "CleverAuth__ClientSecretSecretName": "CleverSyncSOS--Clever--ClientSecret",
+        "CleverAuth__TokenEndpoint": "https://clever.com/oauth/tokens",
+        "CleverAuth__MaxRetryAttempts": "5",
+        "CleverAuth__InitialRetryDelaySeconds": "2",
+        "CleverAuth__TokenRefreshThresholdPercent": "75.0",
+        "CleverAuth__HttpTimeoutSeconds": "30",
+        "CleverApi__BaseUrl": "https://api.clever.com/v3.0/",
+        "CleverApi__PageSize": "100",
+        "CleverApi__MaxRetryAttempts": "5",
+        "CleverApi__InitialRetryDelaySeconds": "2",
+        "ConnectionStrings__SessionDb": "[format('@Microsoft.KeyVault(VaultName={0};SecretName=CleverSyncSOS--SessionDb--ConnectionString)', variables('keyVaultName'))]"
       },
       "dependsOn": [
-        "[resourceId('Microsoft.Web/sites', variables('functionAppName'))]",
-        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]",
         "[resourceId('Microsoft.Insights/components', variables('appInsightsName'))]",
-        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
+        "[resourceId('Microsoft.Web/sites', variables('functionAppName'))]",
+        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
       ]
     }
   ],
@@ -138,17 +263,49 @@
       "type": "string",
       "value": "[reference(resourceId('Microsoft.Web/sites', variables('functionAppName')), '2022-03-01').defaultHostName]"
     },
+    "functionAppPrincipalId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Web/sites', variables('functionAppName')), '2022-03-01', 'full').identity.principalId]"
+    },
     "keyVaultUri": {
       "type": "string",
       "value": "[reference(resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName')), '2022-07-01').vaultUri]"
     },
+    "keyVaultName": {
+      "type": "string",
+      "value": "[variables('keyVaultName')]"
+    },
     "appInsightsConnectionString": {
       "type": "string",
-      "value": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').connectionString]"
+      "value": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').ConnectionString]"
+    },
+    "appInsightsInstrumentationKey": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').InstrumentationKey]"
     },
     "storageAccountName": {
       "type": "string",
       "value": "[variables('storageAccountName')]"
+    },
+    "sqlServerName": {
+      "type": "string",
+      "value": "[variables('sqlServerName')]"
+    },
+    "sqlServerFqdn": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Sql/servers', variables('sqlServerName')), '2023-05-01-preview').fullyQualifiedDomainName]"
+    },
+    "elasticPoolName": {
+      "type": "string",
+      "value": "SOS-Pool"
+    },
+    "elasticPoolCapacity": {
+      "type": "int",
+      "value": "[reference(resourceId('Microsoft.Sql/servers/elasticPools', variables('sqlServerName'), 'SOS-Pool'), '2023-05-01-preview', 'full').sku.capacity]"
+    },
+    "sessionDbName": {
+      "type": "string",
+      "value": "[variables('sessionDbName')]"
     }
   }
 }

@@ -22,6 +22,60 @@ namespace CleverSyncSOS.Core.Database.SessionDb.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("CleverSyncSOS.Core.Database.SessionDb.Entities.AuditLog", b =>
+                {
+                    b.Property<int>("AuditLogId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("AuditLogId"));
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Details")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("IpAddress")
+                        .HasMaxLength(45)
+                        .HasColumnType("nvarchar(45)");
+
+                    b.Property<string>("Resource")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<bool>("Success")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime>("Timestamp")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UserAgent")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<int?>("UserId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("UserIdentifier")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.HasKey("AuditLogId");
+
+                    b.HasIndex("IpAddress");
+
+                    b.HasIndex("Timestamp");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("Action", "Success");
+
+                    b.ToTable("AuditLogs");
+                });
+
             modelBuilder.Entity("CleverSyncSOS.Core.Database.SessionDb.Entities.District", b =>
                 {
                     b.Property<int>("DistrictId")
@@ -38,9 +92,14 @@ namespace CleverSyncSOS.Core.Database.SessionDb.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<string>("KeyVaultSecretPrefix")
+                    b.Property<string>("KeyVaultDistrictPrefix")
+                        .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("LocalTimeZone")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -88,9 +147,10 @@ namespace CleverSyncSOS.Core.Database.SessionDb.Migrations
                         .HasColumnType("bit")
                         .HasDefaultValue(true);
 
-                    b.Property<string>("KeyVaultConnectionStringSecretName")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
+                    b.Property<string>("KeyVaultSchoolPrefix")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -115,6 +175,62 @@ namespace CleverSyncSOS.Core.Database.SessionDb.Migrations
                     b.ToTable("Schools");
                 });
 
+            modelBuilder.Entity("CleverSyncSOS.Core.Database.SessionDb.Entities.SyncChangeDetail", b =>
+                {
+                    b.Property<int>("ChangeDetailId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("ChangeDetailId"));
+
+                    b.Property<string>("ChangeType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<DateTime>("ChangedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("EntityId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("EntityName")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("EntityType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("FieldsChanged")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("NewValues")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("OldValues")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("SyncId")
+                        .HasColumnType("int");
+
+                    b.HasKey("ChangeDetailId");
+
+                    b.HasIndex("ChangeType");
+
+                    b.HasIndex("ChangedAt");
+
+                    b.HasIndex("SyncId", "EntityType");
+
+                    b.ToTable("SyncChangeDetails");
+                });
+
             modelBuilder.Entity("CleverSyncSOS.Core.Database.SessionDb.Entities.SyncHistory", b =>
                 {
                     b.Property<int>("SyncId")
@@ -131,6 +247,9 @@ namespace CleverSyncSOS.Core.Database.SessionDb.Migrations
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("LastEventId")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<DateTime?>("LastSyncTimestamp")
                         .HasColumnType("datetime2");
 
@@ -143,6 +262,9 @@ namespace CleverSyncSOS.Core.Database.SessionDb.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int")
                         .HasDefaultValue(0);
+
+                    b.Property<int>("RecordsUpdated")
+                        .HasColumnType("int");
 
                     b.Property<int>("SchoolId")
                         .HasColumnType("int");
@@ -170,6 +292,91 @@ namespace CleverSyncSOS.Core.Database.SessionDb.Migrations
                     b.ToTable("SyncHistory");
                 });
 
+            modelBuilder.Entity("CleverSyncSOS.Core.Database.SessionDb.Entities.User", b =>
+                {
+                    b.Property<int>("UserId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("UserId"));
+
+                    b.Property<string>("AuthenticationSource")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("CleverUserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("DistrictId")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
+                    b.Property<DateTime?>("LastLogin")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<int?>("SchoolId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("UserId");
+
+                    b.HasIndex("AuthenticationSource");
+
+                    b.HasIndex("CleverUserId");
+
+                    b.HasIndex("DistrictId");
+
+                    b.HasIndex("Email")
+                        .IsUnique();
+
+                    b.HasIndex("SchoolId");
+
+                    b.HasIndex("Role", "IsActive");
+
+                    b.ToTable("Users");
+                });
+
+            modelBuilder.Entity("CleverSyncSOS.Core.Database.SessionDb.Entities.AuditLog", b =>
+                {
+                    b.HasOne("CleverSyncSOS.Core.Database.SessionDb.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("CleverSyncSOS.Core.Database.SessionDb.Entities.School", b =>
                 {
                     b.HasOne("CleverSyncSOS.Core.Database.SessionDb.Entities.District", "District")
@@ -182,6 +389,17 @@ namespace CleverSyncSOS.Core.Database.SessionDb.Migrations
                     b.Navigation("District");
                 });
 
+            modelBuilder.Entity("CleverSyncSOS.Core.Database.SessionDb.Entities.SyncChangeDetail", b =>
+                {
+                    b.HasOne("CleverSyncSOS.Core.Database.SessionDb.Entities.SyncHistory", "SyncHistory")
+                        .WithMany()
+                        .HasForeignKey("SyncId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("SyncHistory");
+                });
+
             modelBuilder.Entity("CleverSyncSOS.Core.Database.SessionDb.Entities.SyncHistory", b =>
                 {
                     b.HasOne("CleverSyncSOS.Core.Database.SessionDb.Entities.School", "School")
@@ -189,6 +407,24 @@ namespace CleverSyncSOS.Core.Database.SessionDb.Migrations
                         .HasForeignKey("SchoolId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("School");
+                });
+
+            modelBuilder.Entity("CleverSyncSOS.Core.Database.SessionDb.Entities.User", b =>
+                {
+                    b.HasOne("CleverSyncSOS.Core.Database.SessionDb.Entities.District", "District")
+                        .WithMany()
+                        .HasForeignKey("DistrictId")
+                        .HasPrincipalKey("CleverDistrictId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CleverSyncSOS.Core.Database.SessionDb.Entities.School", "School")
+                        .WithMany()
+                        .HasForeignKey("SchoolId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("District");
 
                     b.Navigation("School");
                 });

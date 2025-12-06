@@ -1,0 +1,53 @@
+<step title="Incoming Request" date="2025-11-19T13:33:23.007" instance="449416" url="/api/zipdeploy" method="POST" type="request" pid="6436,2,8" Content-Length="9415164" Content-Type="application/zip" Authorization="Bea..." Host="cleversyncprod-fn.scm.azurewebsites.net" If-Match="*" User-Agent="functions-core-tools/4.4.1" X-ARR-LOG-ID="a3a279dd-c42b-4ca8-a7d6-06155faf2f8f" CLIENT-IP="208.102.8.31:53562" X-SITE-DEPLOYMENT-ID="cleversyncprod-fn" WAS-DEFAULT-HOSTNAME="cleversyncprod-fn.scm.azurewebsites.net" X-Forwarded-Proto="https" X-AppService-Proto="https" X-Forwarded-TlsVersion="1.3" X-WAWS-Unencoded-URL="/api/zipdeploy" >
+  <step title="ZipPushDeploy" date="2025-11-19T13:33:23.132" >
+    <step title="Functions App ZipDeploy. Run from package." date="2025-11-19T13:33:23.164" /><!-- duration: 16ms -->
+    <step title="Starting PushDeployAsync" date="2025-11-19T13:33:23.226" /><!-- duration: 31ms -->
+    <step title="Updating shutdown sentinel last write time" date="2025-11-19T13:33:23.367" SemaphoreCount="7" /><!-- duration: 16ms -->
+    <step title="LockFile &apos;C:\home\site\locks\deployments.lock&apos; acquired" date="2025-11-19T13:33:23.398" /><!-- duration: 16ms -->
+    <step title="Saving request content to C:\home\data\SitePackages\20251119133323.zip" date="2025-11-19T13:33:23.460" >
+      <step title="Total 9,415,164 bytes written to C:\home\data\SitePackages\20251119133323.zip" date="2025-11-19T13:33:23.632" /><!-- duration: 16ms -->
+    </step><!-- duration: 406ms -->
+    <step title="LockFile &apos;C:\home\site\locks\deployments.lock&apos; released" date="2025-11-19T13:33:23.882" /><!-- duration: 16ms -->
+    <step title="Deleting shutdown sentinel file" date="2025-11-19T13:33:23.992" SemaphoreCount="8" /><!-- duration: 31ms -->
+    <step title="Starting FetchDeploy" date="2025-11-19T13:33:24.038" /><!-- duration: 34ms -->
+    <step title="Attempting to fetch target branch HEAD" date="2025-11-19T13:33:24.085" /><!-- duration: 16ms -->
+    <step title="Updating shutdown sentinel last write time" date="2025-11-19T13:33:24.149" SemaphoreCount="7" /><!-- duration: 30ms -->
+    <step title="LockFile &apos;C:\home\site\locks\deployments.lock&apos; acquired" date="2025-11-19T13:33:24.195" /><!-- duration: 16ms -->
+    <step title="Performing fetch based deployment" date="2025-11-19T13:33:24.226" >
+      <step title="Creating temporary deployment" date="2025-11-19T13:33:24.242" /><!-- duration: 125ms -->
+      <step title="Fetching changes." date="2025-11-19T13:33:24.570" /><!-- duration: 16ms -->
+      <step title="Starting LocalZipHandler" date="2025-11-19T13:33:24.617" /><!-- duration: 31ms -->
+      <step title="Starting ExtractTriggers" date="2025-11-19T13:33:24.663" /><!-- duration: 16ms -->
+      <step title="None repository commit" date="2025-11-19T13:33:24.757" >
+        <step title="Commit id: d62e5385c0064420967e18b5362e46b6" date="2025-11-19T13:33:24.773" Message="Created via a push deployment" AuthorName="N/A" AuthorEmail="N/A" /><!-- duration: 16ms -->
+      </step><!-- duration: 47ms -->
+      <step title="Before sending BuildRequestReceived status to /api/updatedeploystatus" date="2025-11-19T13:33:24.820" /><!-- duration: 16ms -->
+      <step title="DeploymentManager.Deploy(id:d62e5385c0064420967e18b5362e46b6)" date="2025-11-19T13:33:24.851" >
+        <step title="Collecting changeset information" date="2025-11-19T13:33:24.882" /><!-- duration: 109ms -->
+        <step title="Updating submodules" date="2025-11-19T13:33:25.007" >
+          <step title="Updating submodules." date="2025-11-19T13:33:25.195" /><!-- duration: 15ms -->
+        </step><!-- duration: 234ms -->
+        <step title="Preparing deployment for commit id &apos;d62e5385c0&apos;." date="2025-11-19T13:33:25.382" /><!-- duration: 16ms -->
+        <step title="Determining deployment builder" date="2025-11-19T13:33:25.523" >
+          <step title="Builder is RunFromZipSiteBuilder" date="2025-11-19T13:33:25.538" /><!-- duration: 16ms -->
+        </step><!-- duration: 47ms -->
+        <step title="Copying SSH keys" date="2025-11-19T13:33:25.617" /><!-- duration: 16ms -->
+        <step title="Building" date="2025-11-19T13:33:25.663" >
+          <step title="Skipping build. Project type: Run-From-Zip" date="2025-11-19T13:33:25.788" /><!-- duration: 16ms -->
+          <step title="Skipping post build. Project type: Run-From-Zip" date="2025-11-19T13:33:25.945" /><!-- duration: 16ms -->
+          <step title="Triggering recycle (preview mode disabled)." date="2025-11-19T13:33:26.132" /><!-- duration: 16ms -->
+          <step title="Ignoring FS watcher based recycle request as this is a classic Windows app." date="2025-11-19T13:33:26.179" /><!-- duration: 16ms -->
+          <step title="Deployment successful. DEPLOYMENTINFO: deploymentPath = Functions App ZipDeploy. Run from package., deployer = ZipDeploy, os = windows, sku = Dynamic, language = dotnet-isolated, siteName = cleversyncprod-fn, slotName = Production, siteHostName = cleversyncprod-fn.azurewebsites.net, deploymentStatus = Success" date="2025-11-19T13:33:26.335" /><!-- duration: 0ms -->
+        </step><!-- duration: 1031ms -->
+      </step><!-- duration: 1859ms -->
+      <step title="Cleaning up temp files" date="2025-11-19T13:33:26.726" /><!-- duration: 16ms -->
+      <step title="Updating C:\home\data\SitePackages\packagename.txt with deployment 20251119133323.zip" date="2025-11-19T13:33:26.757" /><!-- duration: 31ms -->
+      <step title="Begin HttpPost https://cleversyncprod-fn.scm.azurewebsites.net/operations/settriggers, x-ms-request-id: a3a279dd-c42b-4ca8-a7d6-06155faf2f8f" date="2025-11-19T13:33:26.867" /><!-- duration: 16ms -->
+      <step title="End HttpPost, status: OK" date="2025-11-19T13:33:27.288" /><!-- duration: 16ms -->
+      <step title="Scheduling background sync triggers after delay" date="2025-11-19T13:33:27.304" /><!-- duration: 16ms -->
+    </step><!-- duration: 3234ms -->
+    <step title="LockFile &apos;C:\home\site\locks\deployments.lock&apos; released" date="2025-11-19T13:33:27.492" /><!-- duration: 16ms -->
+    <step title="Deleting shutdown sentinel file" date="2025-11-19T13:33:27.538" SemaphoreCount="8" /><!-- duration: 16ms -->
+  </step><!-- duration: 4437ms -->
+  <step title="Outgoing response" date="2025-11-19T13:33:27.663" type="response" statusCode="200" statusText="OK" Server="Microsoft-IIS/10.0" x-ms-request-id="a3a279dd-c42b-4ca8-a7d6-06155faf2f8f" Cache-Control="private" X-AspNet-Version="4.0.30319" /><!-- duration: 31ms -->
+</step><!-- duration: 4703ms -->

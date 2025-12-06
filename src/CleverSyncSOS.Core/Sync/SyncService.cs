@@ -152,8 +152,10 @@ public class SyncService : ISyncService
                         PercentComplete = overallPercent,
                         CurrentOperation = $"{school.Name}: {p.CurrentOperation}",
                         StudentsProcessed = p.StudentsProcessed,
+                        StudentsUpdated = p.StudentsUpdated,
                         StudentsFailed = p.StudentsFailed,
                         TeachersProcessed = p.TeachersProcessed,
+                        TeachersUpdated = p.TeachersUpdated,
                         TeachersFailed = p.TeachersFailed
                     });
                 });
@@ -285,6 +287,9 @@ public class SyncService : ISyncService
     {
         _logger.LogInformation("Performing FULL sync for school {SchoolId}", school.SchoolId);
 
+        // Capture the sync start time to use as LastSyncTimestamp
+        var syncStartTime = DateTime.UtcNow;
+
         // Step 1: Mark all existing students and teachers as inactive
         var allStudents = await schoolDb.Students.ToListAsync(cancellationToken);
         var allTeachers = await schoolDb.Teachers.ToListAsync(cancellationToken);
@@ -302,6 +307,10 @@ public class SyncService : ISyncService
         }
         await schoolDb.SaveChangesAsync(cancellationToken);
 
+        // Clear EF change tracker so UpsertStudentAsync fetches fresh data from DB
+        // This prevents the inactive entities from being cached in memory
+        schoolDb.ChangeTracker.Clear();
+
         progress?.Report(new SyncProgress
         {
             PercentComplete = 20,
@@ -309,7 +318,8 @@ public class SyncService : ISyncService
         });
 
         // Step 2: Fetch all students and teachers from Clever API
-        await SyncStudentsAsync(school, schoolDb, result, null, progress, 20, 60, cancellationToken);
+        // Pass syncStartTime so next incremental sync has a valid timestamp
+        await SyncStudentsAsync(school, schoolDb, result, syncStartTime, progress, 20, 60, cancellationToken);
 
         progress?.Report(new SyncProgress
         {
@@ -319,7 +329,8 @@ public class SyncService : ISyncService
             StudentsFailed = result.StudentsFailed
         });
 
-        await SyncTeachersAsync(school, schoolDb, result, null, progress, 60, 90, cancellationToken);
+        // Pass syncStartTime so next incremental sync has a valid timestamp
+        await SyncTeachersAsync(school, schoolDb, result, syncStartTime, progress, 60, 90, cancellationToken);
 
         // Step 3: Hard-delete inactive students and teachers
         var inactiveStudents = await schoolDb.Students.Where(s => !s.IsActive).ToListAsync(cancellationToken);
@@ -335,6 +346,45 @@ public class SyncService : ISyncService
         _logger.LogInformation(
             "Full sync complete for school {SchoolId}: Deleted {StudentsDeleted} students, {TeachersDeleted} teachers",
             school.SchoolId, result.StudentsDeleted, result.TeachersDeleted);
+
+        // Establish baseline for future incremental syncs
+        try
+        {
+            var latestEventId = await _cleverClient.GetLatestEventIdAsync(cancellationToken);
+
+            // Create baseline entry regardless of whether Events API has data yet
+            // If no events exist yet (Events API just enabled), LastEventId will be null
+            // and incremental syncs will fall back to timestamp-based change detection
+            var baselineSyncHistory = new SyncHistory
+            {
+                SchoolId = school.SchoolId,
+                EntityType = "Baseline",
+                SyncType = SyncType.Full,
+                SyncStartTime = DateTime.UtcNow,
+                SyncEndTime = DateTime.UtcNow,
+                Status = "Success",
+                RecordsProcessed = 0,
+                RecordsUpdated = 0,
+                RecordsFailed = 0,
+                LastEventId = latestEventId, // May be null if Events API has no data yet
+                LastSyncTimestamp = syncStartTime
+            };
+            _sessionDb.SyncHistory.Add(baselineSyncHistory);
+            await _sessionDb.SaveChangesAsync(cancellationToken);
+
+            if (!string.IsNullOrEmpty(latestEventId))
+            {
+                _logger.LogInformation("Established baseline event ID for future incremental syncs: {EventId}", latestEventId);
+            }
+            else
+            {
+                _logger.LogInformation("No events available yet - incremental syncs will use timestamp-based change detection until events are generated");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to establish baseline for school {SchoolId}", school.SchoolId);
+        }
     }
 
     /// <summary>
@@ -362,35 +412,16 @@ public class SyncService : ISyncService
 
         if (string.IsNullOrEmpty(lastEventId))
         {
-            // First incremental sync - get the latest event ID as baseline
-            _logger.LogInformation("No previous event ID found. Fetching baseline event ID for school {SchoolId}", school.SchoolId);
-            lastEventId = await _cleverClient.GetLatestEventIdAsync(cancellationToken);
+            // Events API not available - use data API with change detection
+            _logger.LogInformation("Events API not available for school {SchoolId}. Using data API with change detection.", school.SchoolId);
 
-            if (string.IsNullOrEmpty(lastEventId))
-            {
-                _logger.LogWarning("No events available in Clever. Performing full sync instead.");
-                await PerformFullSyncAsync(school, schoolDb, result, progress, cancellationToken);
-                return;
-            }
+            // Fetch all students and teachers without marking them inactive
+            // The UpsertStudentAsync method will detect actual changes
+            await SyncStudentsAsync(school, schoolDb, result, lastModified, progress, 10, 60, cancellationToken);
+            await SyncTeachersAsync(school, schoolDb, result, lastModified, progress, 60, 100, cancellationToken);
 
-            _logger.LogInformation("Baseline event ID established: {EventId}", lastEventId);
-
-            // Save the baseline event ID without processing events
-            var baselineSyncHistory = new SyncHistory
-            {
-                SchoolId = school.SchoolId,
-                EntityType = "Baseline",
-                SyncType = SyncType.Incremental,
-                SyncStartTime = DateTime.UtcNow,
-                SyncEndTime = DateTime.UtcNow,
-                Status = "Success",
-                RecordsProcessed = 0,
-                RecordsFailed = 0,
-                LastEventId = lastEventId
-            };
-            _sessionDb.SyncHistory.Add(baselineSyncHistory);
-            await _sessionDb.SaveChangesAsync(cancellationToken);
-
+            _logger.LogInformation("Incremental sync complete using data API. Students: {Processed} processed, {Updated} updated",
+                result.StudentsProcessed, result.StudentsUpdated);
             return;
         }
 
@@ -412,13 +443,32 @@ public class SyncService : ISyncService
             return;
         }
 
+        // Create SyncHistory record first to get the SyncId for change tracking
+        var eventSyncHistory = new SyncHistory
+        {
+            SchoolId = school.SchoolId,
+            EntityType = "Event",
+            SyncType = SyncType.Incremental,
+            SyncStartTime = DateTime.UtcNow,
+            Status = "InProgress",
+            RecordsProcessed = 0,
+            RecordsUpdated = 0,
+            RecordsFailed = 0,
+            LastEventId = lastEventId
+        };
+        _sessionDb.SyncHistory.Add(eventSyncHistory);
+        await _sessionDb.SaveChangesAsync(cancellationToken);
+
+        // Create change tracker for detailed change logging
+        var changeTracker = new ChangeTracker(_sessionDb, _logger);
+
         // Process events in chronological order (they're already sorted oldest to newest)
         string? latestEventId = null;
         foreach (var evt in events)
         {
             try
             {
-                await ProcessEventAsync(school, schoolDb, evt, result, cancellationToken);
+                await ProcessEventAsync(school, schoolDb, evt, result, eventSyncHistory.SyncId, changeTracker, cancellationToken);
                 latestEventId = evt.Id; // Track the latest event ID we've processed
             }
             catch (Exception ex)
@@ -429,22 +479,16 @@ public class SyncService : ISyncService
             }
         }
 
-        // Update sync history with the latest event ID
+        // Save all pending change details
+        await changeTracker.SaveChangesAsync(cancellationToken);
+
+        // Update sync history with the latest event ID and final status
         if (!string.IsNullOrEmpty(latestEventId))
         {
-            var eventSyncHistory = new SyncHistory
-            {
-                SchoolId = school.SchoolId,
-                EntityType = "Event",
-                SyncType = SyncType.Incremental,
-                SyncStartTime = DateTime.UtcNow,
-                SyncEndTime = DateTime.UtcNow,
-                Status = "Success",
-                RecordsProcessed = events.Length,
-                RecordsFailed = 0,
-                LastEventId = latestEventId
-            };
-            _sessionDb.SyncHistory.Add(eventSyncHistory);
+            eventSyncHistory.SyncEndTime = DateTime.UtcNow;
+            eventSyncHistory.Status = "Success";
+            eventSyncHistory.RecordsProcessed = events.Length;
+            eventSyncHistory.LastEventId = latestEventId;
             await _sessionDb.SaveChangesAsync(cancellationToken);
 
             _logger.LogInformation("Incremental sync complete. Last event ID: {EventId}", latestEventId);
@@ -460,6 +504,8 @@ public class SyncService : ISyncService
         SchoolDbContext schoolDb,
         CleverEvent evt,
         SyncResult result,
+        int syncId,
+        ChangeTracker changeTracker,
         CancellationToken cancellationToken)
     {
         var objectType = evt.Data.Object;
@@ -506,8 +552,12 @@ public class SyncService : ISyncService
                     var student = System.Text.Json.JsonSerializer.Deserialize<CleverStudent>(rawDataJson);
                     if (student != null)
                     {
-                        await UpsertStudentAsync(schoolDb, student, cancellationToken);
-                        result.StudentsProcessed++;
+                        result.StudentsProcessed++; // Count every student examined
+                        bool hasChanges = await UpsertStudentAsync(schoolDb, student, syncId, changeTracker, cancellationToken);
+                        if (hasChanges)
+                        {
+                            result.StudentsUpdated++; // Only count if actually changed
+                        }
                     }
                 }
                 else if (role == "teacher")
@@ -515,8 +565,12 @@ public class SyncService : ISyncService
                     var teacher = System.Text.Json.JsonSerializer.Deserialize<CleverTeacher>(rawDataJson);
                     if (teacher != null)
                     {
-                        await UpsertTeacherAsync(schoolDb, teacher, cancellationToken);
-                        result.TeachersProcessed++;
+                        result.TeachersProcessed++; // Count every teacher examined
+                        bool hasChanges = await UpsertTeacherAsync(schoolDb, teacher, syncId, changeTracker, cancellationToken);
+                        if (hasChanges)
+                        {
+                            result.TeachersUpdated++; // Only count if actually changed
+                        }
                     }
                 }
                 break;
@@ -581,6 +635,13 @@ public class SyncService : ISyncService
             LastSyncTimestamp = lastModified
         };
 
+        // Save SyncHistory immediately to get the SyncId for change tracking
+        _sessionDb.SyncHistory.Add(syncHistory);
+        await _sessionDb.SaveChangesAsync(cancellationToken);
+
+        // Create change tracker for detailed change logging
+        var changeTracker = new ChangeTracker(_sessionDb, _logger);
+
         try
         {
             // Fetch students from Clever API
@@ -598,8 +659,12 @@ public class SyncService : ISyncService
                 var cleverStudent = cleverStudents[i];
                 try
                 {
-                    await UpsertStudentAsync(schoolDb, cleverStudent, cancellationToken);
-                    result.StudentsProcessed++;
+                    result.StudentsProcessed++; // Count every student examined
+                    bool hasChanges = await UpsertStudentAsync(schoolDb, cleverStudent, syncHistory.SyncId, changeTracker, cancellationToken);
+                    if (hasChanges)
+                    {
+                        result.StudentsUpdated++; // Only count if actually changed
+                    }
 
                     // Report progress every 10 students or at the end
                     if ((i + 1) % 10 == 0 || i == totalStudents - 1)
@@ -608,7 +673,8 @@ public class SyncService : ISyncService
                         progress?.Report(new SyncProgress
                         {
                             PercentComplete = currentPercent,
-                            CurrentOperation = $"Processing students ({i + 1}/{totalStudents})...",
+                            CurrentOperation = $"Processing {result.StudentsProcessed}/{totalStudents} students, {result.StudentsUpdated} updated",
+                            StudentsUpdated = result.StudentsUpdated,
                             StudentsProcessed = result.StudentsProcessed,
                             StudentsFailed = result.StudentsFailed
                         });
@@ -622,8 +688,12 @@ public class SyncService : ISyncService
                 }
             }
 
+            // Save all tracked changes
+            await changeTracker.SaveChangesAsync(cancellationToken);
+
             syncHistory.Status = "Success";
             syncHistory.RecordsProcessed = result.StudentsProcessed;
+            syncHistory.RecordsUpdated = result.StudentsUpdated;
             syncHistory.RecordsFailed = result.StudentsFailed;
         }
         catch (Exception ex)
@@ -636,7 +706,6 @@ public class SyncService : ISyncService
         finally
         {
             syncHistory.SyncEndTime = DateTime.UtcNow;
-            _sessionDb.SyncHistory.Add(syncHistory);
             await _sessionDb.SaveChangesAsync(cancellationToken);
         }
     }
@@ -664,6 +733,13 @@ public class SyncService : ISyncService
             LastSyncTimestamp = lastModified
         };
 
+        // Save SyncHistory immediately to get the SyncId for change tracking
+        _sessionDb.SyncHistory.Add(syncHistory);
+        await _sessionDb.SaveChangesAsync(cancellationToken);
+
+        // Create change tracker for detailed change logging
+        var changeTracker = new ChangeTracker(_sessionDb, _logger);
+
         try
         {
             // Fetch teachers from Clever API
@@ -681,8 +757,12 @@ public class SyncService : ISyncService
                 var cleverTeacher = cleverTeachers[i];
                 try
                 {
-                    await UpsertTeacherAsync(schoolDb, cleverTeacher, cancellationToken);
-                    result.TeachersProcessed++;
+                    result.TeachersProcessed++; // Count every teacher examined
+                    bool hasChanges = await UpsertTeacherAsync(schoolDb, cleverTeacher, syncHistory.SyncId, changeTracker, cancellationToken);
+                    if (hasChanges)
+                    {
+                        result.TeachersUpdated++; // Only count if actually changed
+                    }
 
                     // Report progress every 10 teachers or at the end
                     if ((i + 1) % 10 == 0 || i == totalTeachers - 1)
@@ -691,9 +771,11 @@ public class SyncService : ISyncService
                         progress?.Report(new SyncProgress
                         {
                             PercentComplete = currentPercent,
-                            CurrentOperation = $"Processing teachers ({i + 1}/{totalTeachers})...",
+                            CurrentOperation = $"Processing {result.TeachersProcessed}/{totalTeachers} teachers, {result.TeachersUpdated} updated",
+                            StudentsUpdated = result.StudentsUpdated,
                             StudentsProcessed = result.StudentsProcessed,
                             StudentsFailed = result.StudentsFailed,
+                            TeachersUpdated = result.TeachersUpdated,
                             TeachersProcessed = result.TeachersProcessed,
                             TeachersFailed = result.TeachersFailed
                         });
@@ -707,8 +789,12 @@ public class SyncService : ISyncService
                 }
             }
 
+            // Save all tracked changes
+            await changeTracker.SaveChangesAsync(cancellationToken);
+
             syncHistory.Status = "Success";
             syncHistory.RecordsProcessed = result.TeachersProcessed;
+            syncHistory.RecordsUpdated = result.TeachersUpdated;
             syncHistory.RecordsFailed = result.TeachersFailed;
         }
         catch (Exception ex)
@@ -721,7 +807,6 @@ public class SyncService : ISyncService
         finally
         {
             syncHistory.SyncEndTime = DateTime.UtcNow;
-            _sessionDb.SyncHistory.Add(syncHistory);
             await _sessionDb.SaveChangesAsync(cancellationToken);
         }
     }
@@ -730,15 +815,18 @@ public class SyncService : ISyncService
     /// Upserts a student record (insert if new, update if exists).
     /// Source: FR-014 - Upsert logic for students
     /// </summary>
-    private async Task UpsertStudentAsync(
+    private async Task<bool> UpsertStudentAsync(
         SchoolDbContext schoolDb,
         CleverStudent cleverStudent,
+        int syncId,
+        ChangeTracker changeTracker,
         CancellationToken cancellationToken)
     {
         var student = await schoolDb.Students
             .FirstOrDefaultAsync(s => s.CleverStudentId == cleverStudent.Id, cancellationToken);
 
         var now = DateTime.UtcNow;
+        bool hasChanges = false;
 
         if (student == null)
         {
@@ -758,37 +846,99 @@ public class SyncService : ISyncService
                 UpdatedAt = now
             };
             schoolDb.Students.Add(student);
+            hasChanges = true;
+
+            // Track creation
+            changeTracker.TrackStudentChange(syncId, null, student, "Created");
         }
         else
         {
-            // Update existing student
-            student.FirstName = cleverStudent.Name.First;
-            student.LastName = cleverStudent.Name.Last;
-            student.Email = cleverStudent.Email;
-            student.Grade = cleverStudent.Grade;
-            student.StudentNumber = cleverStudent.StudentNumber;
-            student.LastModifiedInClever = cleverStudent.LastModified;
-            student.IsActive = true; // Reactivate if it was marked inactive
-            student.DeactivatedAt = null;
-            student.UpdatedAt = now;
+            // Check if any fields actually changed (treating null and empty string as equivalent)
+            var firstNameChanged = !StringsEqual(student.FirstName, cleverStudent.Name.First);
+            var lastNameChanged = !StringsEqual(student.LastName, cleverStudent.Name.Last);
+            var emailChanged = !StringsEqual(student.Email, cleverStudent.Email);
+            var gradeChanged = !StringsEqual(student.Grade, cleverStudent.Grade);
+            var studentNumberChanged = !StringsEqual(student.StudentNumber, cleverStudent.StudentNumber);
+            var isInactive = !student.IsActive;
+            var hasDeactivationDate = student.DeactivatedAt != null;
+
+            // Log first student to verify StringsEqual is working
+            if (student.CleverStudentId == (await schoolDb.Students.FirstOrDefaultAsync(cancellationToken))?.CleverStudentId)
+            {
+                _logger.LogWarning("DEBUG First Student - Grade comparison: DB=[{DbGrade}] Clever=[{CleverGrade}] StringsEqual={Equals} Changed={Changed}",
+                    student.Grade ?? "NULL", cleverStudent.Grade ?? "NULL",
+                    StringsEqual(student.Grade, cleverStudent.Grade), gradeChanged);
+            }
+
+            if (firstNameChanged || lastNameChanged || emailChanged || gradeChanged ||
+                studentNumberChanged || isInactive || hasDeactivationDate)
+            {
+                // Debug logging - using Warning to ensure it's captured
+                _logger.LogWarning(
+                    "CHANGE DETECTED - Student {StudentId}: FirstName={FirstNameChanged}[{OldFirst}->{NewFirst}], " +
+                    "LastName={LastNameChanged}[{OldLast}->{NewLast}], Email={EmailChanged}[{OldEmail}->{NewEmail}], " +
+                    "Grade={GradeChanged}[{OldGrade}->{NewGrade}], StudentNumber={StudentNumberChanged}[{OldNumber}->{NewNumber}], " +
+                    "IsInactive={IsInactive}, HasDeactivationDate={HasDeactivationDate}",
+                    cleverStudent.Id, firstNameChanged, student.FirstName ?? "NULL", cleverStudent.Name.First ?? "NULL",
+                    lastNameChanged, student.LastName ?? "NULL", cleverStudent.Name.Last ?? "NULL",
+                    emailChanged, student.Email ?? "NULL", cleverStudent.Email ?? "NULL",
+                    gradeChanged, student.Grade ?? "NULL", cleverStudent.Grade ?? "NULL",
+                    studentNumberChanged, student.StudentNumber ?? "NULL", cleverStudent.StudentNumber ?? "NULL",
+                    isInactive, hasDeactivationDate);
+
+                // Capture old state before updating
+                var oldStudent = new Student
+                {
+                    CleverStudentId = student.CleverStudentId,
+                    FirstName = student.FirstName,
+                    LastName = student.LastName,
+                    Email = student.Email,
+                    Grade = student.Grade,
+                    StudentNumber = student.StudentNumber,
+                    LastModifiedInClever = student.LastModifiedInClever
+                };
+
+                // Update existing student only if changed
+                student.FirstName = cleverStudent.Name.First;
+                student.LastName = cleverStudent.Name.Last;
+                student.Email = cleverStudent.Email;
+                student.Grade = cleverStudent.Grade;
+                student.StudentNumber = cleverStudent.StudentNumber;
+                student.LastModifiedInClever = cleverStudent.LastModified;
+                student.IsActive = true; // Reactivate if it was marked inactive
+                student.DeactivatedAt = null;
+                student.UpdatedAt = now;
+                hasChanges = true;
+
+                // Track update with old and new values
+                changeTracker.TrackStudentChange(syncId, oldStudent, student, "Updated");
+            }
         }
 
-        await schoolDb.SaveChangesAsync(cancellationToken);
+        if (hasChanges)
+        {
+            await schoolDb.SaveChangesAsync(cancellationToken);
+        }
+
+        return hasChanges;
     }
 
     /// <summary>
     /// Upserts a teacher record (insert if new, update if exists).
     /// Source: FR-014 - Upsert logic for teachers
     /// </summary>
-    private async Task UpsertTeacherAsync(
+    private async Task<bool> UpsertTeacherAsync(
         SchoolDbContext schoolDb,
         CleverTeacher cleverTeacher,
+        int syncId,
+        ChangeTracker changeTracker,
         CancellationToken cancellationToken)
     {
         var teacher = await schoolDb.Teachers
             .FirstOrDefaultAsync(t => t.CleverTeacherId == cleverTeacher.Id, cancellationToken);
 
         var now = DateTime.UtcNow;
+        bool hasChanges = false;
 
         if (teacher == null)
         {
@@ -807,21 +957,54 @@ public class SyncService : ISyncService
                 UpdatedAt = now
             };
             schoolDb.Teachers.Add(teacher);
+            hasChanges = true;
+
+            // Track creation
+            changeTracker.TrackTeacherChange(syncId, null, teacher, "Created");
         }
         else
         {
-            // Update existing teacher
-            teacher.FirstName = cleverTeacher.Name.First;
-            teacher.LastName = cleverTeacher.Name.Last;
-            teacher.Email = cleverTeacher.Email;
-            teacher.Title = cleverTeacher.Title;
-            teacher.LastModifiedInClever = cleverTeacher.LastModified;
-            teacher.IsActive = true; // Reactivate if it was marked inactive
-            teacher.DeactivatedAt = null;
-            teacher.UpdatedAt = now;
+            // Check if any fields actually changed (treating null and empty string as equivalent)
+            if (!StringsEqual(teacher.FirstName, cleverTeacher.Name.First) ||
+                !StringsEqual(teacher.LastName, cleverTeacher.Name.Last) ||
+                !StringsEqual(teacher.Email, cleverTeacher.Email) ||
+                !StringsEqual(teacher.Title, cleverTeacher.Title) ||
+                !teacher.IsActive ||
+                teacher.DeactivatedAt != null)
+            {
+                // Capture old state before updating
+                var oldTeacher = new Teacher
+                {
+                    CleverTeacherId = teacher.CleverTeacherId,
+                    FirstName = teacher.FirstName,
+                    LastName = teacher.LastName,
+                    Email = teacher.Email,
+                    Title = teacher.Title,
+                    LastModifiedInClever = teacher.LastModifiedInClever
+                };
+
+                // Update existing teacher only if changed
+                teacher.FirstName = cleverTeacher.Name.First;
+                teacher.LastName = cleverTeacher.Name.Last;
+                teacher.Email = cleverTeacher.Email;
+                teacher.Title = cleverTeacher.Title;
+                teacher.LastModifiedInClever = cleverTeacher.LastModified;
+                teacher.IsActive = true; // Reactivate if it was marked inactive
+                teacher.DeactivatedAt = null;
+                teacher.UpdatedAt = now;
+                hasChanges = true;
+
+                // Track update with old and new values
+                changeTracker.TrackTeacherChange(syncId, oldTeacher, teacher, "Updated");
+            }
         }
 
-        await schoolDb.SaveChangesAsync(cancellationToken);
+        if (hasChanges)
+        {
+            await schoolDb.SaveChangesAsync(cancellationToken);
+        }
+
+        return hasChanges;
     }
 
     /// <inheritdoc />
@@ -845,5 +1028,16 @@ public class SyncService : ISyncService
             .ToArrayAsync(cancellationToken);
 
         return history;
+    }
+
+    /// <summary>
+    /// Compares two strings treating null, empty string, and whitespace as equivalent.
+    /// </summary>
+    private static bool StringsEqual(string? a, string? b)
+    {
+        // Treat null, empty string, and whitespace as equivalent
+        var normalizedA = string.IsNullOrWhiteSpace(a) ? null : a.Trim();
+        var normalizedB = string.IsNullOrWhiteSpace(b) ? null : b.Trim();
+        return normalizedA == normalizedB;
     }
 }

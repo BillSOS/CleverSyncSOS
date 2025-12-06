@@ -11,9 +11,11 @@ public class SyncProgressUpdate
     public string CurrentOperation { get; set; } = string.Empty; // "Fetching students..."
 
     // Counters
-    public int StudentsProcessed { get; set; }
+    public int StudentsProcessed { get; set; } // Total students examined
+    public int StudentsUpdated { get; set; } // Students that actually changed
     public int StudentsFailed { get; set; }
-    public int TeachersProcessed { get; set; }
+    public int TeachersProcessed { get; set; } // Total teachers examined
+    public int TeachersUpdated { get; set; } // Teachers that actually changed
     public int TeachersFailed { get; set; }
 
     // Estimates

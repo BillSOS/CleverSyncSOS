@@ -8,21 +8,21 @@
                     </NavLink>
                 </div>
                 <AuthorizeView Policy="SchoolAdmin">
-                    <Authorized Context="schoolContext">
-                        <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="schools">
-                                <span class="oi oi-book" aria-hidden="true"></span> Schools
-                            </NavLink>
-                        </div>
+                    <Authorized>
                         <div class="nav-item px-3">
                             <NavLink class="nav-link" href="sync">
                                 <span class="oi oi-pie-chart" aria-hidden="true"></span> Sync Dashboard
                             </NavLink>
                         </div>
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="sync-history">
+                                <span class="oi oi-list" aria-hidden="true"></span> Sync History
+                            </NavLink>
+                        </div>
                     </Authorized>
                 </AuthorizeView>
                 <AuthorizeView Policy="DistrictAdmin">
-                    <Authorized Context="districtContext">
+                    <Authorized>
                         <div class="nav-item px-3">
                             <NavLink class="nav-link" href="districts">
                                 <span class="oi oi-globe" aria-hidden="true"></span> Districts
@@ -30,8 +30,17 @@
                         </div>
                     </Authorized>
                 </AuthorizeView>
+                <AuthorizeView Policy="SchoolAdmin">
+                    <Authorized>
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="schools">
+                                <span class="oi oi-book" aria-hidden="true"></span> Schools
+                            </NavLink>
+                        </div>
+                    </Authorized>
+                </AuthorizeView>
                 <AuthorizeView Policy="SuperAdmin">
-                    <Authorized Context="superContext">
+                    <Authorized>
                         <div class="nav-item px-3">
                             <NavLink class="nav-link" href="users">
                                 <span class="oi oi-people" aria-hidden="true"></span> Users

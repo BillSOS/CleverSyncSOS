@@ -12,7 +12,10 @@
 
 <div class="container-fluid">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1>Sync Operations</h1>
+        <div class="d-flex align-items-center">
+            <img src="favicon.png" alt="CleverSync Logo" style="height: 2.5rem; margin-right: 1rem;" />
+            <h1 class="mb-0">Sync Operations</h1>
+        </div>
         <div>
             <button class="btn btn-success me-2" @onclick="StartManualSync">
                 <i class="oi oi-loop-circular"></i> Start Manual Sync
@@ -195,10 +198,13 @@
                                             }
                                         </td>
                                         <td>
-                                            <span class="text-success">@sync.RecordsProcessed</span>
+                                            <span class="text-muted">@sync.RecordsProcessed processed</span>
+                                            <br/>
+                                            <span class="text-success">@sync.RecordsUpdated updated</span>
                                             @if (sync.RecordsFailed > 0)
                                             {
-                                                <span class="text-danger"> / @sync.RecordsFailed failed</span>
+                                                <br/>
+                                                <span class="text-danger">@sync.RecordsFailed failed</span>
                                             }
                                         </td>
                                         <td>
@@ -304,6 +310,9 @@
 
                                 <dt class="col-sm-3">Records Processed:</dt>
                                 <dd class="col-sm-9">@_selectedSync.RecordsProcessed</dd>
+
+                                <dt class="col-sm-3">Records Updated:</dt>
+                                <dd class="col-sm-9"><span class="text-success fw-bold">@_selectedSync.RecordsUpdated</span></dd>
 
                                 <dt class="col-sm-3">Records Failed:</dt>
                                 <dd class="col-sm-9">@_selectedSync.RecordsFailed</dd>

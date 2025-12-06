@@ -1,11 +1,35 @@
 # Quick Start Guide
 
-**Version:**1.0.0
-**Last Updated:*2025-11-14
+**Version:** 2.0.0
+**Last Updated:** 2025-11-25
+
+---
+
+## 🎯 Choose Your Path
+
+### Option 1: Admin Portal (Recommended for Most Users)
+
+**For a graphical interface**, deploy and use the CleverSync Admin Portal:
+
+**Production URL:** https://cleversyncsos.azurewebsites.net
+
+📖 **See:** [Admin Portal Quick Start Guide](AdminPortal-QuickStart.md)
+
+The Admin Portal provides:
+- ✅ Web-based configuration and management
+- ✅ No command-line experience required
+- ✅ User-friendly interface for all operations
+- ✅ Built-in role-based access control
+
+---
+
+### Option 2: CLI Setup (This Guide)
+
+**For automation, scripting, or advanced users**, follow the manual CLI steps below.
 
 ## Immediate Manual Steps Required
 
-Before you can run CleverSyncSOS, complete these steps:
+Before you can run CleverSyncSOS via CLI, complete these steps:
 
 ---
 
@@ -15,10 +39,12 @@ Before you can run CleverSyncSOS, complete these steps:
 
 ```bash
 az keyvault secret set \
-  --vault-name cleversyncsos \
-  --name SessionDb-ConnectionString \
-  --value "Server=tcp:sos-northcentral.database.windows.net,1433;Initial Catalog=SessionDb;User ID=SessionAdmin;Password=YOUR_PASSWORD;Encrypt=True;"
+  --vault-name cleversync-kv \
+  --name CleverSyncSOS--SessionDb--ConnectionString \
+  --value "Server=tcp:cleversync-sql-prod.database.windows.net,1433;Initial Catalog=SessionDb;User ID=SessionDbOwner;Password=YOUR_PASSWORD;Encrypt=True;"
 ```
+
+**Note:** For Admin Portal deployments, you'll also need the `Session-PW` secret (just the password) for constructing connection strings.
 
 Replace `YOUR_PASSWORD` with your actual SQL Server password.
 
@@ -61,9 +87,9 @@ Connect to your SessionDb database (using Azure Data Studio, SSMS, or Azure Port
 USE SessionDb;
 
 -- Insert your district
-INSERT INTO Districts (CleverDistrictId, Name, KeyVaultSecretPrefix, CreatedAt, UpdatedAt)
+INSERT INTO Districts (CleverDistrictId, Name, DistrictPrefix, CreatedAt, UpdatedAt)
 VALUES
-('YOUR_CLEVER_DISTRICT_ID', 'Your District Name', 'District-YourDistrict', GETUTCDATE(), GETUTCDATE());
+('YOUR_CLEVER_DISTRICT_ID', 'Your District Name', 'YourDistrict-District', GETUTCDATE(), GETUTCDATE());
 
 -- Check it was inserted
 SELECT * FROM Districts;
@@ -85,7 +111,7 @@ INSERT INTO Schools (
     CleverSchoolId,
     Name,
     DatabaseName,
-    KeyVaultConnectionStringSecretName,
+    SchoolPrefix,
     IsActive,
     RequiresFullSync,
     CreatedAt,
@@ -97,7 +123,7 @@ VALUES
     'YOUR_CLEVER_SCHOOL_ID',
     'Your School Name',
     'School_YourSchoolName',  -- Database name (create this next)
-    'School-YourSchoolName-ConnectionString',  -- Key Vault secret name
+    'YourSchool-Elementary',  -- SchoolPrefix (used for Key Vault secret naming)
     1,  -- IsActive
     1,  -- RequiresFullSync (for first sync)
     GETUTCDATE(),
@@ -145,12 +171,12 @@ dotnet ef database update --context SchoolDbContext --connection "Server=tcp:sos
 
 ```bash
 az keyvault secret set \
-  --vault-name cleversyncsos \
-  --name School-YourSchoolName-ConnectionString \
+  --vault-name cleversync-kv \
+  --name CleverSyncSOS--YourSchool-Elementary--ConnectionString \
   --value "Server=tcp:sos-northcentral.database.windows.net,1433;Initial Catalog=School_YourSchoolName;User ID=SOSAdmin;Password=YOUR_PASSWORD;Encrypt=True;"
 ```
 
-**Important**: The secret name must match what you entered in the Schools table (`KeyVaultConnectionStringSecretName` column).
+**Important**: The secret name uses the `SchoolPrefix` from the Schools table. Format: `CleverSyncSOS--{SchoolPrefix}--ConnectionString`
 
 ---
 
@@ -159,14 +185,14 @@ az keyvault secret set \
 ```bash
 # Store Clever Client ID
 az keyvault secret set \
-  --vault-name cleversyncsos \
-  --name CleverClientId \
+  --vault-name cleversync-kv \
+  --name CleverSyncSOS--Clever--ClientId \
   --value "YOUR_CLEVER_CLIENT_ID"
 
 # Store Clever Client Secret
 az keyvault secret set \
-  --vault-name cleversyncsos \
-  --name CleverClientSecret \
+  --vault-name cleversync-kv \
+  --name CleverSyncSOS--Clever--ClientSecret \
   --value "YOUR_CLEVER_CLIENT_SECRET"
 ```
 
@@ -193,8 +219,10 @@ az account show
 # Connect to School_YourSchoolName and run: SELECT * FROM Students;
 
 # 4. Verify Key Vault secrets exist
-az keyvault secret list --vault-name cleversyncsos --query "[].name"
-# Should show: CleverClientId, CleverClientSecret, SessionDb-ConnectionString, School-YourSchoolName-ConnectionString
+az keyvault secret list --vault-name cleversync-kv --query "[].name"
+# Should show: CleverSyncSOS--Clever--ClientId, CleverSyncSOS--Clever--ClientSecret,
+#              CleverSyncSOS--SessionDb--ConnectionString, Session-PW,
+#              CleverSyncSOS--YourSchool-Elementary--ConnectionString
 ```
 
 ---
@@ -205,8 +233,8 @@ If you have a pre-generated district token from Clever (non-expiring token):
 
 ```bash
 az keyvault secret set \
-  --vault-name cleversyncsos \
-  --name CleverAccessToken \
+  --vault-name cleversync-kv \
+  --name CleverSyncSOS--Clever--AccessToken \
   --value "YOUR_DISTRICT_TOKEN"
 ```
 
@@ -270,11 +298,12 @@ After these steps, you should have:
 - Teachers table (empty, will populate during sync)
 
 ✅ **Azure Key Vault** with:
-- CleverClientId secret
-- CleverClientSecret secret
-- CleverAccessToken secret (optional, for district tokens)
-- SessionDb-ConnectionString secret (contains SessionDb password)
-- School-{SchoolName}-ConnectionString secret(s) (contains per-school passwords)
+- CleverSyncSOS--Clever--ClientId secret
+- CleverSyncSOS--Clever--ClientSecret secret
+- CleverSyncSOS--Clever--AccessToken secret (optional, for district tokens)
+- CleverSyncSOS--SessionDb--ConnectionString secret
+- Session-PW secret (SessionDb SQL password)
+- CleverSyncSOS--{SchoolPrefix}--ConnectionString secret(s) (per-school connections)
 
 ✅ **Applications**:
 - CleverSyncSOS.Console - Testing and manual operations
@@ -320,7 +349,7 @@ az webapp up \
 ```
 
 Configure Application Settings in Azure Portal:
-- `CleverAuth__KeyVaultUri` = `https://cleversyncsos.vault.azure.net/`
+- `CleverAuth__KeyVaultUri` = `https://cleversync-kv.vault.azure.net/`
 - `APPLICATIONINSIGHTS_CONNECTION_STRING` = (from step 12)
 
 **Health Endpoints:**
@@ -349,7 +378,7 @@ func azure functionapp publish CleverSyncSOS-Functions
 ```
 
 Configure Application Settings:
-- `CleverAuth__KeyVaultUri` = `https://cleversyncsos.vault.azure.net/`
+- `CleverAuth__KeyVaultUri` = `https://cleversync-kv.vault.azure.net/`
 - `CleverApi__BaseUrl` = `https://api.clever.com/v3.0`
 - `CleverApi__PageSize` = `100`
 - `APPLICATIONINSIGHTS_CONNECTION_STRING` = (from step 12)
@@ -380,7 +409,7 @@ FUNCTION_IDENTITY=$(az functionapp identity show \
   --query principalId -o tsv)
 
 az keyvault set-policy \
-  --name cleversyncsos \
+  --name cleversync-kv \
   --object-id $FUNCTION_IDENTITY \
   --secret-permissions get list
 ```
@@ -450,10 +479,10 @@ For questions or issues, see the User Guide or contact your IT support team
 
 ### "Key Vault access denied"
 - Verify you're logged in: `az login`
-- Check Key Vault policies: `az keyvault show --name cleversyncsos`
+- Check Key Vault policies: `az keyvault show --name cleversync-kv`
 
 ### "Clever API 401 Unauthorized"
-- Verify secrets in Key Vault: `az keyvault secret show --vault-name cleversyncsos --name CleverClientId`
+- Verify secrets in Key Vault: `az keyvault secret show --vault-name cleversync-kv --name CleverSyncSOS--Clever--ClientId`
 - Check credentials are correct in Clever dashboard
 
 For detailed troubleshooting, see: [ConfigurationSetup.md](ConfigurationSetup.md)

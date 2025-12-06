@@ -41,9 +41,15 @@ public class SyncHistory
     public string Status { get; set; } = string.Empty;
 
     /// <summary>
-    /// Number of records successfully synced.
+    /// Number of records processed/examined during sync (all records fetched from Clever).
     /// </summary>
     public int RecordsProcessed { get; set; }
+
+    /// <summary>
+    /// Number of records with actual data changes that were persisted to the database.
+    /// This is the key metric for detecting if there are real changes vs. no changes.
+    /// </summary>
+    public int RecordsUpdated { get; set; }
 
     /// <summary>
     /// Number of records that failed.
@@ -57,8 +63,16 @@ public class SyncHistory
 
     /// <summary>
     /// Timestamp for incremental sync (Clever's last_modified).
+    /// DEPRECATED: Use LastEventId instead for Events API-based incremental syncs.
     /// </summary>
     public DateTime? LastSyncTimestamp { get; set; }
+
+    /// <summary>
+    /// Last event ID processed from Clever's Events API.
+    /// Used for incremental sync to track position in event stream.
+    /// Documentation: https://dev.clever.com/docs/events-api
+    /// </summary>
+    public string? LastEventId { get; set; }
 
     /// <summary>
     /// Navigation property to school.

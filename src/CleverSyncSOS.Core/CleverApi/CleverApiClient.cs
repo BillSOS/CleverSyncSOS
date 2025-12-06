@@ -128,10 +128,16 @@ public class CleverApiClient : ICleverApiClient
                     queryParams.Add($"role={role}");
                 }
 
+                // NOTE: Clever API v3.0 does NOT support filtering by lastModified date via query parameters.
+                // The starting_after parameter is for cursor-based pagination (record IDs), not timestamps.
+                // According to Clever docs, use the Events API for incremental changes.
+                // For now, we fetch all records and filter client-side (less efficient but functional).
+                // See: https://dev.clever.com/docs/events-api
+                // TODO: Implement Events API for true incremental syncing
                 if (lastModified.HasValue)
                 {
-                    var lastModifiedUtc = lastModified.Value.ToUniversalTime();
-                    queryParams.Add($"starting_after={lastModifiedUtc:yyyy-MM-ddTHH:mm:ssZ}");
+                    // Intentionally not adding query parameter - will filter client-side
+                    _logger.LogWarning("lastModified filtering requested but not supported by Clever API. Fetching all records.");
                 }
 
                 url = $"{endpoint}?{string.Join("&", queryParams)}";
@@ -166,6 +172,64 @@ public class CleverApiClient : ICleverApiClient
         } while (nextUrl != null && !cancellationToken.IsCancellationRequested);
 
         return allData.ToArray();
+    }
+
+    /// <inheritdoc />
+    public async Task<CleverEvent[]> GetEventsAsync(
+        string? startingAfter = null,
+        string? schoolId = null,
+        string? recordType = null,
+        int limit = 1000,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation(
+            "Fetching events (startingAfter: {StartingAfter}, school: {SchoolId}, recordType: {RecordType}, limit: {Limit})",
+            startingAfter ?? "null",
+            schoolId ?? "null",
+            recordType ?? "null",
+            limit);
+
+        var queryParams = new List<string>
+        {
+            $"limit={Math.Min(limit, 1000)}" // Clever's max is 1000
+        };
+
+        if (!string.IsNullOrEmpty(startingAfter))
+        {
+            queryParams.Add($"starting_after={startingAfter}");
+        }
+
+        if (!string.IsNullOrEmpty(schoolId))
+        {
+            queryParams.Add($"school={schoolId}");
+        }
+
+        if (!string.IsNullOrEmpty(recordType))
+        {
+            queryParams.Add($"record_type={recordType}");
+        }
+
+        var url = $"events?{string.Join("&", queryParams)}";
+        var response = await FetchWithRetryAsync<CleverEventsResponse>(url, cancellationToken);
+
+        _logger.LogInformation("Retrieved {Count} events", response.Data?.Length ?? 0);
+        return response.Data ?? Array.Empty<CleverEvent>();
+    }
+
+    /// <inheritdoc />
+    public async Task<string?> GetLatestEventIdAsync(CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("Fetching latest event ID for baseline");
+
+        // Get the single most recent event
+        // Note: Clever's Events API returns events in reverse chronological order by default (newest first)
+        var url = "events?limit=1";
+        var response = await FetchWithRetryAsync<CleverEventsResponse>(url, cancellationToken);
+
+        var latestEventId = response.Data?.FirstOrDefault()?.Id;
+        _logger.LogInformation("Latest event ID: {EventId}", latestEventId ?? "null");
+
+        return latestEventId;
     }
 
     /// <summary>

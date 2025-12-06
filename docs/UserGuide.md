@@ -1,7 +1,37 @@
 # CleverSyncSOS User Guide
 
-**Version:** 1.0.0
-**Last Updated:** 2025-11-13
+**Version:** 2.0.0
+**Last Updated:** 2025-11-25
+
+---
+
+## 🎯 Choose Your Interface
+
+### Recommended: Admin Portal (GUI)
+
+For most users, we recommend using the **CleverSync Admin Portal** - a web-based interface that makes managing CleverSyncSOS easy without any command-line experience.
+
+**Production URL:** https://cleversyncsos.azurewebsites.net
+
+**Admin Portal provides:**
+- ✅ **Web-based dashboard** - Visual overview of all sync operations
+- ✅ **Point-and-click management** - No CLI or SQL knowledge required
+- ✅ **Real-time monitoring** - See sync status and history instantly
+- ✅ **Role-based access** - School admins see their school, district admins see their district
+- ✅ **Configuration management** - Update settings through a GUI
+- ✅ **Audit logging** - Track all administrative actions
+
+📖 **See:** [Admin Portal User Guide](AdminPortal-User-Guide.md)
+
+### Alternative: Command-Line Tools (Advanced)
+
+This guide covers command-line and API-based operations for:
+- System administrators
+- Automation and scripting
+- Advanced troubleshooting
+- CI/CD integration
+
+**If you prefer a graphical interface, use the Admin Portal instead!**
 
 ---
 
@@ -376,13 +406,14 @@ Health checks tell you if the system is working properly.
 3. Clever API credentials expired or revoked
 
 **Solutions:**
-1. Verify secrets exist in Key Vault:
-   - CleverClientId
-   - CleverClientSecret
-   - CleverAccessToken (if using district token)
+1. Verify secrets exist in Key Vault (`cleversync-kv`):
+   - `CleverSyncSOS--Clever--ClientId`
+   - `CleverSyncSOS--Clever--ClientSecret`
+   - `CleverSyncSOS--Clever--AccessToken` (if using district token)
 2. Check managed identity has Key Vault access
 3. Re-create Clever OAuth credentials if needed
 4. Check Clever Developer Dashboard for API status
+5. **Admin Portal users**: Use the Configuration page to view/update secrets
 
 ### Issue: Slow Syncs
 
@@ -430,11 +461,12 @@ Health checks tell you if the system is working properly.
 
 **Solutions:**
 1. Add Azure Functions IP to SQL Server firewall rules
-2. Verify connection strings in Key Vault:
-   - SessionDb-ConnectionString
-   - School-{SchoolName}-ConnectionString
+2. Verify connection strings in Key Vault (`cleversync-kv`):
+   - `CleverSyncSOS--SessionDb--ConnectionString`
+   - `CleverSyncSOS--{SchoolPrefix}--ConnectionString` (e.g., `CleverSyncSOS--Lincoln-Elementary--ConnectionString`)
 3. Test connection from Azure Portal Query Editor
 4. Check Azure SQL Database status
+5. **Admin Portal users**: Use the School Configuration page to view/update connection strings
 
 ---
 
@@ -500,20 +532,33 @@ Yes:
 
 ### What if I add a new school?
 
+**Using Admin Portal (Recommended):**
+1. Navigate to Schools page
+2. Follow your district's process for adding schools
+3. Configure the school's Key Vault secrets via the Configuration page
+4. Trigger a sync from the Sync Operations page
+
+**Using CLI:**
 1. Add the school to the `Schools` table in SessionDb
 2. Create a database for the school
-3. Add the school's connection string to Key Vault
+3. Add the school's connection string to Key Vault with pattern: `CleverSyncSOS--{SchoolPrefix}--ConnectionString`
 4. Trigger a full sync for that school
 5. The daily sync will include it going forward
 
 ### Can I see detailed logs?
 
-Yes, in **Application Insights** (if configured). IT administrators can view:
-- Every API call
-- Authentication attempts
-- Errors and warnings
-- Performance metrics
-- Sync statistics
+**Admin Portal Users:**
+- View sync history on the Sync Operations page
+- Filter by school, status, and date range
+- See detailed sync results including errors
+
+**IT Administrators:**
+- **Application Insights** (if configured) provides complete telemetry:
+  - Every API call
+  - Authentication attempts
+  - Errors and warnings
+  - Performance metrics
+  - Sync statistics
 
 ---
 
@@ -594,7 +639,18 @@ ORDER BY SyncDate DESC;
 
 ---
 
-**Document Version:** 1.0.0
-**Last Updated:** 2025-11-13
+## Related Documentation
+
+- **[Admin Portal User Guide](AdminPortal-User-Guide.md)** - Web-based management (Recommended)
+- **[Admin Portal Quick Start](AdminPortal-QuickStart.md)** - Deploying the Admin Portal
+- **[Quick Start Guide](QuickStart.md)** - CLI-based deployment
+- **[Configuration Setup](ConfigurationSetup.md)** - Manual configuration
+- **[Naming Conventions](Naming-Conventions.md)** - Key Vault secret naming
+- **[Security Architecture](SecurityArchitecture.md)** - Security design
+
+---
+
+**Document Version:** 2.0.0
+**Last Updated:** 2025-11-25
 **For Technical Documentation:** See `README.md` and `QuickStart.md`
 **For Developer Documentation:** See `SpecKit/` folder

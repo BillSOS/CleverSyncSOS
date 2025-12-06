@@ -17,14 +17,20 @@ CleverSyncSOS implements security best practices for credential and connection s
 
 ### 2. **Centralized Secret Management**
 
-All sensitive data is stored in Azure Key Vault:
+All sensitive data is stored in Azure Key Vault following standardized naming convention:
+
+**Pattern**: `CleverSyncSOS--{Component}--{Property}`
 
 | Secret Name | Purpose | Example Value |
 |------------|---------|---------------|
-| `CleverClientId` | Clever OAuth Client ID | `abc123def456` |
-| `CleverClientSecret` | Clever OAuth Client Secret | `secret_abc123` |
-| `SessionDb-ConnectionString` | SessionDb database connection | `Server=...;Password=...` |
-| `School-{SchoolName}-ConnectionString` | Per-school database connections | `Server=...;Password=...` |
+| `CleverSyncSOS--Clever--ClientId` | Clever OAuth Client ID | `abc123def456` |
+| `CleverSyncSOS--Clever--ClientSecret` | Clever OAuth Client Secret | `secret_abc123` |
+| `CleverSyncSOS--SessionDb--ConnectionString` | SessionDb database connection | `Server=...;Password=...` |
+| `CleverSyncSOS--AdminPortal--SuperAdminPassword` | Super Admin bypass login password | `generated_secure_password` |
+| `CleverSyncSOS--{SchoolPrefix}--ConnectionString` | Per-school database connections | `Server=...;Password=...` |
+| `Session-PW` | SessionDb SQL password | `sql_password` |
+
+**Note**: School-specific secrets use the school's `SchoolPrefix` (e.g., `CleverSyncSOS--Lincoln-Elementary--ConnectionString`)
 
 ### 3. **DefaultAzureCredential for Authentication**
 
@@ -55,9 +61,9 @@ This means:
    ↓
 3. DefaultAzureCredential authenticates to Key Vault
    ↓
-4. Retrieves "SessionDb-ConnectionString" secret
+4. Retrieves password from "Session-PW" secret
    ↓
-5. Injects into Configuration["ConnectionStrings:SessionDb"]
+5. Constructs connection string with password
    ↓
 6. AddCleverSync() registers SessionDbContext with connection string
    ↓
@@ -146,13 +152,13 @@ public async Task<string> GetSecretAsync(string secretName, CancellationToken ca
   "ConnectionStrings": {
     "SessionDb": ""  // Empty - loaded from Key Vault at startup
   },
-  "KeyVault": {
-    "SessionDbConnectionStringSecretName": "SessionDb-ConnectionString"
+  "AzureKeyVault": {
+    "VaultUri": "https://cleversync-kv.vault.azure.net/"
   },
   "CleverAuth": {
-    "KeyVaultUri": "https://cleversyncsos.vault.azure.net/",
-    "ClientIdSecretName": "CleverClientId",
-    "ClientSecretSecretName": "CleverClientSecret",
+    "KeyVaultUri": "https://cleversync-kv.vault.azure.net/",
+    "ClientIdSecretName": "CleverSyncSOS--Clever--ClientId",
+    "ClientSecretSecretName": "CleverSyncSOS--Clever--ClientSecret",
     "TokenEndpoint": "https://clever.com/oauth/tokens"
   },
   "CleverApi": {
@@ -212,11 +218,21 @@ Change passwords without redeploying:
 
 ```bash
 # Update SessionDb password
-az keyvault secret set --vault-name cleversyncsos \
-  --name SessionDb-ConnectionString \
+az keyvault secret set --vault-name cleversync-kv \
+  --name Session-PW \
+  --value "NEW_PASSWORD"
+
+# Update Clever API client secret
+az keyvault secret set --vault-name cleversync-kv \
+  --name CleverSyncSOS--Clever--ClientSecret \
+  --value "NEW_CLIENT_SECRET"
+
+# Update school connection string
+az keyvault secret set --vault-name cleversync-kv \
+  --name CleverSyncSOS--Lincoln-Elementary--ConnectionString \
   --value "Server=...;Password=NEW_PASSWORD;..."
 
-# Application picks up new secret on next startup (or restart app)
+# Application picks up new secrets on next startup (or restart app)
 ```
 
 ### 2. Audit Trail
@@ -330,8 +346,71 @@ Instead of username/password, use Managed Identity:
 
 ---
 
+## Admin Portal Security
+
+The CleverSync Admin Portal implements additional security measures:
+
+### 1. **Authentication Methods**
+
+- **Clever OAuth**: School and district administrators authenticate via Clever SSO
+- **Super Admin Bypass**: Emergency access using password from Key Vault (`CleverSyncSOS--AdminPortal--SuperAdminPassword`)
+- **Rate Limiting**: Bypass login is rate-limited to prevent brute force attacks (5 attempts per hour per IP)
+
+### 2. **Role-Based Access Control**
+
+| Role | Access Level | Permissions |
+|------|-------------|-------------|
+| **SuperAdmin** | All districts and schools | Full access to all features, users, audit logs, configuration |
+| **DistrictAdmin** | Assigned district only | Manage schools in district, view logs, configure district settings |
+| **SchoolAdmin** | Assigned school only | View school data, sync operations, basic configuration |
+
+### 3. **Session Management**
+
+- Session timeout: 30 minutes of inactivity
+- Sliding expiration: Activity extends session
+- Secure cookies: HttpOnly, SameSite=Strict, Secure flag enforced
+- HTTPS only: All traffic encrypted in transit
+
+### 4. **Key Vault Access**
+
+The Admin Portal uses Managed Identity to access Key Vault:
+
+```bash
+# Grant Admin Portal access to Key Vault
+az webapp identity assign --name cleversyncprod-admin --resource-group cleversyncprod-rg
+
+PRINCIPAL_ID=$(az webapp identity show \
+  --name cleversyncprod-admin \
+  --resource-group cleversyncprod-rg \
+  --query principalId -o tsv)
+
+az keyvault set-policy --name cleversync-kv \
+  --object-id $PRINCIPAL_ID \
+  --secret-permissions get list
+```
+
+### 5. **Audit Logging**
+
+All administrative actions are logged to the `AuditLogs` table:
+- User authentication (success/failure)
+- Secret access (view/edit/delete)
+- Configuration changes
+- User management actions
+
+### 6. **Sensitive Data Protection**
+
+- Passwords displayed as `••••••••` by default
+- Explicit action required to view secrets
+- No secrets in browser console or network logs
+- Secrets never cached in browser
+
+---
+
 ## Related Documentation
 
+- [Admin Portal Quick Start Guide](AdminPortal-QuickStart.md)
+- [Admin Portal User Guide](AdminPortal-User-Guide.md)
 - [Configuration Setup Guide](ConfigurationSetup.md)
-- [Quick Start Guide](QuickStart.md)
+- [Naming Conventions](Naming-Conventions.md)
+- [Deployment Checklist](DEPLOYMENT-CHECKLIST.md)
 - [Azure Key Vault Best Practices](https://docs.microsoft.com/en-us/azure/key-vault/general/best-practices)
