@@ -1,10 +1,11 @@
 @page "/roster/{SectionIdStr}"
 @attribute [Authorize(Policy = "SchoolAdmin")]
 @using CleverSyncSOS.Core.Database.SessionDb
+@using CleverSyncSOS.Core.Database.SchoolDb
 @using CleverSyncSOS.AdminPortal.Services
 @using Microsoft.EntityFrameworkCore
-@inject SchoolDbContext SchoolDb
 @inject SessionDbContext SessionDb
+@inject SchoolDatabaseConnectionFactory SchoolDbFactory
 @inject ICurrentUserService CurrentUser
 @inject NavigationManager NavigationManager
 
@@ -224,17 +225,38 @@
     private Section? _section;
     private bool _loading = true;
     private string? _error;
+    private SchoolDbContext? _schoolDb;
 
     protected override async Task OnInitializedAsync()
     {
-        if (string.IsNullOrEmpty(SectionIdStr) || !int.TryParse(SectionIdStr, out int sectionId))
+        try
         {
-            _error = "Invalid section ID";
-            _loading = false;
-            return;
-        }
+            if (string.IsNullOrEmpty(SectionIdStr) || !int.TryParse(SectionIdStr, out int sectionId))
+            {
+                _error = "Invalid section ID";
+                _loading = false;
+                return;
+            }
 
-        await LoadData(sectionId);
+            // Get user's school and create SchoolDbContext for that school
+            var userSchool = await SessionDb.Schools
+                .FirstOrDefaultAsync(s => s.SchoolId == CurrentUser.SchoolId && s.IsActive);
+
+            if (userSchool == null)
+            {
+                _error = "No active school found for your account.";
+                _loading = false;
+                return;
+            }
+
+            _schoolDb = await SchoolDbFactory.CreateSchoolContextAsync(userSchool);
+            await LoadData(sectionId);
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to initialize: {ex.Message}";
+            _loading = false;
+        }
     }
 
     private async Task LoadData(int sectionId)
@@ -244,7 +266,13 @@
 
         try
         {
-            _section = await SchoolDb.Sections
+            if (_schoolDb == null)
+            {
+                _error = "School database context not initialized.";
+                return;
+            }
+
+            _section = await _schoolDb.Sections
                 .Include(s => s.Course)
                 .Include(s => s.TeacherSections)
                     .ThenInclude(ts => ts.Teacher)

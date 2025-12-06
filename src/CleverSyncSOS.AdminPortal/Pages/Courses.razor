@@ -1,10 +1,11 @@
 @page "/courses"
 @attribute [Authorize(Policy = "SchoolAdmin")]
 @using CleverSyncSOS.Core.Database.SessionDb
+@using CleverSyncSOS.Core.Database.SchoolDb
 @using CleverSyncSOS.AdminPortal.Services
 @using Microsoft.EntityFrameworkCore
-@inject SchoolDbContext SchoolDb
 @inject SessionDbContext SessionDb
+@inject SchoolDatabaseConnectionFactory SchoolDbFactory
 @inject ICurrentUserService CurrentUser
 @inject NavigationManager NavigationManager
 
@@ -185,6 +186,7 @@
     private List<Course>? _filteredCourses;
     private bool _loading = true;
     private string? _error;
+    private SchoolDbContext? _schoolDb;
 
     // Filters
     private string _subjectFilter = "";
@@ -193,7 +195,27 @@
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadData();
+        try
+        {
+            // Get user's school and create SchoolDbContext for that school
+            var userSchool = await SessionDb.Schools
+                .FirstOrDefaultAsync(s => s.SchoolId == CurrentUser.SchoolId && s.IsActive);
+
+            if (userSchool == null)
+            {
+                _error = "No active school found for your account.";
+                _loading = false;
+                return;
+            }
+
+            _schoolDb = await SchoolDbFactory.CreateSchoolContextAsync(userSchool);
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to initialize: {ex.Message}";
+            _loading = false;
+        }
     }
 
     private async Task LoadData()
@@ -203,7 +225,13 @@
 
         try
         {
-            _courses = await SchoolDb.Courses
+            if (_schoolDb == null)
+            {
+                _error = "School database context not initialized.";
+                return;
+            }
+
+            _courses = await _schoolDb.Courses
                 .Include(c => c.Sections)
                 .OrderBy(c => c.Name)
                 .ToListAsync();
