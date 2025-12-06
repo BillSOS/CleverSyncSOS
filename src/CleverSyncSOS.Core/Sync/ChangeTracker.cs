@@ -153,6 +153,133 @@ public class ChangeTracker
     }
 
     /// <summary>
+    /// Tracks changes for a course record.
+    /// </summary>
+    public void TrackCourseChange(int syncId, Course? existingCourse, Course newCourse, string changeType)
+    {
+        try
+        {
+            var changes = new Dictionary<string, (string? OldValue, string? NewValue)>();
+
+            if (changeType == "Created")
+            {
+                changes["Name"] = (null, newCourse.Name);
+                if (!string.IsNullOrEmpty(newCourse.Number))
+                    changes["Number"] = (null, newCourse.Number);
+                if (!string.IsNullOrEmpty(newCourse.Subject))
+                    changes["Subject"] = (null, newCourse.Subject);
+                if (!string.IsNullOrEmpty(newCourse.GradeLevels))
+                    changes["GradeLevels"] = (null, newCourse.GradeLevels);
+            }
+            else if (changeType == "Updated" && existingCourse != null)
+            {
+                if (!StringsEqual(existingCourse.Name, newCourse.Name))
+                    changes["Name"] = (existingCourse.Name, newCourse.Name);
+
+                if (!StringsEqual(existingCourse.Number, newCourse.Number))
+                    changes["Number"] = (existingCourse.Number, newCourse.Number);
+
+                if (!StringsEqual(existingCourse.Subject, newCourse.Subject))
+                    changes["Subject"] = (existingCourse.Subject, newCourse.Subject);
+
+                if (!StringsEqual(existingCourse.GradeLevels, newCourse.GradeLevels))
+                    changes["GradeLevels"] = (existingCourse.GradeLevels, newCourse.GradeLevels);
+
+                if (existingCourse.LastModifiedInClever != newCourse.LastModifiedInClever)
+                    changes["LastModifiedInClever"] = (existingCourse.LastModifiedInClever?.ToString("O"), newCourse.LastModifiedInClever?.ToString("O"));
+            }
+
+            if (changes.Any())
+            {
+                var changeDetail = new SyncChangeDetail
+                {
+                    SyncId = syncId,
+                    EntityType = "Course",
+                    EntityId = newCourse.CleverCourseId,
+                    EntityName = newCourse.Name,
+                    ChangeType = changeType,
+                    FieldsChanged = string.Join(", ", changes.Keys),
+                    OldValues = SerializeValues(changes.ToDictionary(c => c.Key, c => c.Value.OldValue)),
+                    NewValues = SerializeValues(changes.ToDictionary(c => c.Key, c => c.Value.NewValue)),
+                    ChangedAt = DateTime.UtcNow
+                };
+
+                _pendingChanges.Add(changeDetail);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to track change for course {CourseId}", newCourse.CleverCourseId);
+        }
+    }
+
+    /// <summary>
+    /// Tracks changes for a section record.
+    /// </summary>
+    public void TrackSectionChange(int syncId, Section? existingSection, Section newSection, string changeType)
+    {
+        try
+        {
+            var changes = new Dictionary<string, (string? OldValue, string? NewValue)>();
+
+            if (changeType == "Created")
+            {
+                changes["Name"] = (null, newSection.Name);
+                if (!string.IsNullOrEmpty(newSection.Period))
+                    changes["Period"] = (null, newSection.Period);
+                if (!string.IsNullOrEmpty(newSection.Subject))
+                    changes["Subject"] = (null, newSection.Subject);
+                if (!string.IsNullOrEmpty(newSection.Grade))
+                    changes["Grade"] = (null, newSection.Grade);
+                if (newSection.CourseId > 0)
+                    changes["CourseId"] = (null, newSection.CourseId.ToString());
+            }
+            else if (changeType == "Updated" && existingSection != null)
+            {
+                if (!StringsEqual(existingSection.Name, newSection.Name))
+                    changes["Name"] = (existingSection.Name, newSection.Name);
+
+                if (!StringsEqual(existingSection.Period, newSection.Period))
+                    changes["Period"] = (existingSection.Period, newSection.Period);
+
+                if (!StringsEqual(existingSection.Subject, newSection.Subject))
+                    changes["Subject"] = (existingSection.Subject, newSection.Subject);
+
+                if (!StringsEqual(existingSection.Grade, newSection.Grade))
+                    changes["Grade"] = (existingSection.Grade, newSection.Grade);
+
+                if (existingSection.CourseId != newSection.CourseId)
+                    changes["CourseId"] = (existingSection.CourseId.ToString(), newSection.CourseId.ToString());
+
+                if (existingSection.LastModifiedInClever != newSection.LastModifiedInClever)
+                    changes["LastModifiedInClever"] = (existingSection.LastModifiedInClever?.ToString("O"), newSection.LastModifiedInClever?.ToString("O"));
+            }
+
+            if (changes.Any())
+            {
+                var changeDetail = new SyncChangeDetail
+                {
+                    SyncId = syncId,
+                    EntityType = "Section",
+                    EntityId = newSection.CleverSectionId,
+                    EntityName = newSection.Name,
+                    ChangeType = changeType,
+                    FieldsChanged = string.Join(", ", changes.Keys),
+                    OldValues = SerializeValues(changes.ToDictionary(c => c.Key, c => c.Value.OldValue)),
+                    NewValues = SerializeValues(changes.ToDictionary(c => c.Key, c => c.Value.NewValue)),
+                    ChangedAt = DateTime.UtcNow
+                };
+
+                _pendingChanges.Add(changeDetail);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to track change for section {SectionId}", newSection.CleverSectionId);
+        }
+    }
+
+    /// <summary>
     /// Saves all pending changes to the database.
     /// </summary>
     public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)

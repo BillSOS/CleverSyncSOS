@@ -109,6 +109,16 @@ public class SyncResult
     public int TeachersFailed { get; set; }
     public int TeachersDeleted { get; set; } // For full sync hard-delete
 
+    // Course sync stats
+    public int CoursesProcessed { get; set; } // Total courses examined
+    public int CoursesUpdated { get; set; } // Courses that actually changed
+    public int CoursesFailed { get; set; }
+
+    // Section sync stats
+    public int SectionsProcessed { get; set; } // Total sections examined
+    public int SectionsUpdated { get; set; } // Sections that actually changed
+    public int SectionsFailed { get; set; }
+
     public DateTime StartTime { get; set; }
     public DateTime EndTime { get; set; }
     public TimeSpan Duration => EndTime - StartTime;

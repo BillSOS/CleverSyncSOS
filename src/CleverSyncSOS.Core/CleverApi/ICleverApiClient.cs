@@ -66,4 +66,28 @@ public interface ICleverApiClient
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Most recent event ID, or null if no events exist</returns>
     Task<string?> GetLatestEventIdAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieves courses for a school.
+    /// Requires Secure Sync district bearer token (user SSO tokens cannot access courses).
+    /// Documentation: https://dev.clever.com/docs/courses
+    /// </summary>
+    /// <param name="schoolId">Clever school identifier</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Array of courses</returns>
+    Task<CleverCourse[]> GetCoursesAsync(
+        string schoolId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieves sections for a school.
+    /// Requires Secure Sync district bearer token (user SSO tokens cannot access sections).
+    /// Documentation: https://dev.clever.com/docs/sections
+    /// </summary>
+    /// <param name="schoolId">Clever school identifier</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Array of sections</returns>
+    Task<CleverSection[]> GetSectionsAsync(
+        string schoolId,
+        CancellationToken cancellationToken = default);
 }

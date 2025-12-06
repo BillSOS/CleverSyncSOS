@@ -217,6 +217,34 @@ public class CleverApiClient : ICleverApiClient
     }
 
     /// <inheritdoc />
+    public async Task<CleverCourse[]> GetCoursesAsync(
+        string schoolId,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("Fetching courses for school {SchoolId}", schoolId);
+
+        var endpoint = $"schools/{schoolId}/courses";
+        var courses = await GetPagedDataAsync<CleverCourse>(endpoint, null, null, cancellationToken);
+
+        _logger.LogInformation("Retrieved {Count} courses for school {SchoolId}", courses.Length, schoolId);
+        return courses;
+    }
+
+    /// <inheritdoc />
+    public async Task<CleverSection[]> GetSectionsAsync(
+        string schoolId,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("Fetching sections for school {SchoolId}", schoolId);
+
+        var endpoint = $"schools/{schoolId}/sections";
+        var sections = await GetPagedDataAsync<CleverSection>(endpoint, null, null, cancellationToken);
+
+        _logger.LogInformation("Retrieved {Count} sections for school {SchoolId}", sections.Length, schoolId);
+        return sections;
+    }
+
+    /// <inheritdoc />
     public async Task<string?> GetLatestEventIdAsync(CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Fetching latest event ID for baseline");

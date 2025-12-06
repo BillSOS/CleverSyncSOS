@@ -1,0 +1,287 @@
+@page "/sections"
+@attribute [Authorize(Policy = "SchoolAdmin")]
+@using CleverSyncSOS.Core.Database.SessionDb
+@using CleverSyncSOS.AdminPortal.Services
+@using Microsoft.EntityFrameworkCore
+@inject SchoolDbContext SchoolDb
+@inject SessionDbContext SessionDb
+@inject ICurrentUserService CurrentUser
+@inject NavigationManager NavigationManager
+
+<PageTitle>Sections - CleverSync Admin</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="d-flex align-items-center">
+            <img src="favicon.png" alt="CleverSync Logo" style="height: 2.5rem; margin-right: 1rem;" />
+            <h1 class="mb-0">Sections</h1>
+        </div>
+        <button class="btn btn-primary" @onclick="RefreshData">
+            <i class="oi oi-reload"></i> Refresh
+        </button>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="text-center my-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2 text-muted">Loading sections...</p>
+        </div>
+    }
+    else if (_error != null)
+    {
+        <div class="alert alert-danger" role="alert">
+            <h4 class="alert-heading">Error</h4>
+            <p>@_error</p>
+            <button class="btn btn-sm btn-outline-danger" @onclick="LoadData">Try Again</button>
+        </div>
+    }
+    else
+    {
+        <!-- Summary Cards -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-subtitle mb-2 text-muted">Total Sections</h6>
+                        <h3 class="card-title">@_sections.Count</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-subtitle mb-2 text-muted">Active</h6>
+                        <h3 class="card-title text-success">@_sections.Count(s => s.IsActive)</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-subtitle mb-2 text-muted">Total Teachers</h6>
+                        <h3 class="card-title">@_sections.Sum(s => s.TeacherSections.Count)</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-subtitle mb-2 text-muted">Total Students</h6>
+                        <h3 class="card-title">@_sections.Sum(s => s.StudentSections.Count)</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label class="form-label">Course</label>
+                        <select class="form-select" @bind="_courseFilter" @bind:after="ApplyFilters">
+                            <option value="">All Courses</option>
+                            @foreach (var course in _courses)
+                            {
+                                <option value="@course.CourseId">@course.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Section Name</label>
+                        <input type="text" class="form-control" placeholder="Filter by name"
+                               @bind="_nameFilter" @bind:after="ApplyFilters" />
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Grade Level</label>
+                        <input type="text" class="form-control" placeholder="Filter by grade"
+                               @bind="_gradeFilter" @bind:after="ApplyFilters" />
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Status</label>
+                        <select class="form-select" @bind="_statusFilter" @bind:after="ApplyFilters">
+                            <option value="">All</option>
+                            <option value="Active">Active</option>
+                            <option value="Inactive">Inactive</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sections Table -->
+        @if (_filteredSections == null || !_filteredSections.Any())
+        {
+            <div class="alert alert-info" role="alert">
+                <h4 class="alert-heading">No Sections Found</h4>
+                <p>No sections match the current filters.</p>
+            </div>
+        }
+        else
+        {
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Sections</h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Section Name</th>
+                                    <th>Course</th>
+                                    <th>Period</th>
+                                    <th>Grade</th>
+                                    <th>Teachers</th>
+                                    <th>Students</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var sec in _filteredSections)
+                                {
+                                    <tr>
+                                        <td>
+                                            <strong>@sec.Name</strong>
+                                        </td>
+                                        <td>
+                                            @if (sec.Course != null)
+                                            {
+                                                <span>@sec.Course.Name</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">-</span>
+                                            }
+                                        </td>
+                                        <td>@(sec.Period ?? "-")</td>
+                                        <td>@(sec.Grade ?? "-")</td>
+                                        <td>
+                                            <span class="badge bg-info">@sec.TeacherSections.Count</span>
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-success">@sec.StudentSections.Count</span>
+                                        </td>
+                                        <td>
+                                            @if (sec.IsActive)
+                                            {
+                                                <span class="badge bg-success">Active</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-secondary">Inactive</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            <button class="btn btn-sm btn-outline-primary"
+                                                    @onclick="() => ViewRoster(sec.SectionId)">
+                                                View Roster
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private List<Section>? _sections;
+    private List<Section>? _filteredSections;
+    private List<Course>? _courses;
+    private bool _loading = true;
+    private string? _error;
+
+    // Filters
+    private string _courseFilter = "";
+    private string _nameFilter = "";
+    private string _gradeFilter = "";
+    private string _statusFilter = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            _sections = await SchoolDb.Sections
+                .Include(s => s.Course)
+                .Include(s => s.TeacherSections)
+                .Include(s => s.StudentSections)
+                .OrderBy(s => s.Name)
+                .ToListAsync();
+
+            _courses = await SchoolDb.Courses
+                .OrderBy(c => c.Name)
+                .ToListAsync();
+
+            ApplyFilters();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to load sections: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void ApplyFilters()
+    {
+        if (_sections == null)
+            return;
+
+        var query = _sections.AsEnumerable();
+
+        if (!string.IsNullOrEmpty(_courseFilter) && int.TryParse(_courseFilter, out int courseId))
+        {
+            query = query.Where(s => s.CourseId == courseId);
+        }
+
+        if (!string.IsNullOrEmpty(_nameFilter))
+        {
+            query = query.Where(s => s.Name.Contains(_nameFilter, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrEmpty(_gradeFilter))
+        {
+            query = query.Where(s => s.Grade != null && s.Grade.Contains(_gradeFilter, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (_statusFilter == "Active")
+        {
+            query = query.Where(s => s.IsActive);
+        }
+        else if (_statusFilter == "Inactive")
+        {
+            query = query.Where(s => !s.IsActive);
+        }
+
+        _filteredSections = query.ToList();
+    }
+
+    private async Task RefreshData()
+    {
+        await LoadData();
+    }
+
+    private void ViewRoster(int sectionId)
+    {
+        NavigationManager.NavigateTo($"/roster/{sectionId}");
+    }
+}

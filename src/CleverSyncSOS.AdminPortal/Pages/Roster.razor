@@ -1,0 +1,274 @@
+@page "/roster/{SectionIdStr}"
+@attribute [Authorize(Policy = "SchoolAdmin")]
+@using CleverSyncSOS.Core.Database.SessionDb
+@using CleverSyncSOS.AdminPortal.Services
+@using Microsoft.EntityFrameworkCore
+@inject SchoolDbContext SchoolDb
+@inject SessionDbContext SessionDb
+@inject ICurrentUserService CurrentUser
+@inject NavigationManager NavigationManager
+
+<PageTitle>Roster - CleverSync Admin</PageTitle>
+
+<div class="container-fluid">
+    @if (_loading)
+    {
+        <div class="text-center my-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2 text-muted">Loading roster...</p>
+        </div>
+    }
+    else if (_error != null)
+    {
+        <div class="alert alert-danger" role="alert">
+            <h4 class="alert-heading">Error</h4>
+            <p>@_error</p>
+            <button class="btn btn-sm btn-outline-danger" @onclick="GoBack">Go Back</button>
+        </div>
+    }
+    else if (_section != null)
+    {
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div class="d-flex align-items-center">
+                <img src="favicon.png" alt="CleverSync Logo" style="height: 2.5rem; margin-right: 1rem;" />
+                <h1 class="mb-0">Roster: @_section.Name</h1>
+            </div>
+            <button class="btn btn-secondary" @onclick="GoBack">
+                <i class="oi oi-arrow-left"></i> Back
+            </button>
+        </div>
+
+        <!-- Section Details Card -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Section Details</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3">
+                        <strong>Section Name:</strong><br />
+                        @_section.Name
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Course:</strong><br />
+                        @(_section.Course?.Name ?? "-")
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Period:</strong><br />
+                        @(_section.Period ?? "-")
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Grade Level:</strong><br />
+                        @(_section.Grade ?? "-")
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Summary Cards -->
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-subtitle mb-2 text-muted">Primary Teacher</h6>
+                        <h5 class="card-title">
+                            @{
+                                var primaryTeacher = _section.TeacherSections.FirstOrDefault(ts => ts.IsPrimary);
+                                if (primaryTeacher?.Teacher != null)
+                                {
+                                    @($"{primaryTeacher.Teacher.FirstName} {primaryTeacher.Teacher.LastName}")
+                                }
+                                else
+                                {
+                                    @("Not assigned")
+                                }
+                            }
+                        </h5>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-subtitle mb-2 text-muted">Co-Teachers</h6>
+                        <h3 class="card-title">@_section.TeacherSections.Count(ts => !ts.IsPrimary)</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-subtitle mb-2 text-muted">Total Students</h6>
+                        <h3 class="card-title">@_section.StudentSections.Count</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Teachers Section -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Teachers Assigned to Section</h5>
+            </div>
+            <div class="card-body p-0">
+                @if (_section.TeacherSections.Any())
+                {
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Teacher Name</th>
+                                    <th>Email</th>
+                                    <th>Role</th>
+                                    <th>Assignment Date</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var ts in _section.TeacherSections.OrderByDescending(t => t.IsPrimary).ThenBy(t => t.Teacher.LastName))
+                                {
+                                    <tr>
+                                        <td>
+                                            <strong>@ts.Teacher.FirstName @ts.Teacher.LastName</strong>
+                                        </td>
+                                        <td>@ts.Teacher.Email</td>
+                                        <td>
+                                            @if (ts.IsPrimary)
+                                            {
+                                                <span class="badge bg-primary">Primary</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-secondary">Co-Teacher</span>
+                                            }
+                                        </td>
+                                        <td class="text-muted small">
+                                            @ts.CreatedAt.ToString("yyyy-MM-dd")
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="alert alert-info m-3 mb-0">
+                        No teachers assigned to this section.
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Students Section -->
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Students Enrolled</h5>
+                <span class="badge bg-primary">@_section.StudentSections.Count</span>
+            </div>
+            <div class="card-body p-0">
+                @if (_section.StudentSections.Any())
+                {
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Student Name</th>
+                                    <th>Email</th>
+                                    <th>Grade</th>
+                                    <th>Enrollment Date</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var ss in _section.StudentSections.OrderBy(s => s.Student.LastName).ThenBy(s => s.Student.FirstName))
+                                {
+                                    <tr>
+                                        <td>
+                                            <strong>@ss.Student.FirstName @ss.Student.LastName</strong>
+                                        </td>
+                                        <td>@(ss.Student.Email ?? "-")</td>
+                                        <td>@(ss.Student.Grade ?? "-")</td>
+                                        <td class="text-muted small">
+                                            @ss.CreatedAt.ToString("yyyy-MM-dd")
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="alert alert-info m-3 mb-0">
+                        No students enrolled in this section.
+                    </div>
+                }
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-warning" role="alert">
+            <h4 class="alert-heading">Section Not Found</h4>
+            <p>The requested section could not be found.</p>
+            <button class="btn btn-sm btn-outline-warning" @onclick="GoBack">Go Back</button>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public string? SectionIdStr { get; set; }
+
+    private Section? _section;
+    private bool _loading = true;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (string.IsNullOrEmpty(SectionIdStr) || !int.TryParse(SectionIdStr, out int sectionId))
+        {
+            _error = "Invalid section ID";
+            _loading = false;
+            return;
+        }
+
+        await LoadData(sectionId);
+    }
+
+    private async Task LoadData(int sectionId)
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            _section = await SchoolDb.Sections
+                .Include(s => s.Course)
+                .Include(s => s.TeacherSections)
+                    .ThenInclude(ts => ts.Teacher)
+                .Include(s => s.StudentSections)
+                    .ThenInclude(ss => ss.Student)
+                .FirstOrDefaultAsync(s => s.SectionId == sectionId);
+
+            if (_section == null)
+            {
+                _error = "Section not found";
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to load roster: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void GoBack()
+    {
+        NavigationManager.NavigateTo("/sections");
+    }
+}
