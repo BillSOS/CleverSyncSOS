@@ -263,6 +263,7 @@
         if (int.TryParse(e.Value?.ToString(), out int schoolId) && schoolId > 0)
         {
             _selectedSchoolId = schoolId;
+            _loading = true;
             var selectedSchool = await SessionDb.Schools
                 .FirstOrDefaultAsync(s => s.SchoolId == schoolId && s.IsActive);
 
@@ -270,6 +271,7 @@
             {
                 _schoolDb = await SchoolDbFactory.CreateSchoolContextAsync(selectedSchool);
                 await LoadData();
+                StateHasChanged();
             }
         }
     }
