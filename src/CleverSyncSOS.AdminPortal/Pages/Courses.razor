@@ -23,7 +23,7 @@
         </button>
     </div>
 
-    @if (CurrentUser.IsSuperAdmin && _selectedSchoolId == 0)
+    @if (_isSuperAdmin && _selectedSchoolId == 0)
     {
         @if (_schools?.Count > 0)
         {
@@ -215,6 +215,7 @@
     private string? _error;
     private SchoolDbContext? _schoolDb;
     private int _selectedSchoolId = 0;
+    private bool _isSuperAdmin = false;
 
     // Filters
     private string _subjectFilter = "";
@@ -225,8 +226,13 @@
     {
         try
         {
+            // Cache user info at initialization (HttpContext may not be available later in Blazor Server)
+            _isSuperAdmin = CurrentUser.IsSuperAdmin;
+            var userSchoolId = CurrentUser.SchoolId;
+            var userRole = CurrentUser.Role;
+
             // For Super Admin, load schools for selection
-            if (CurrentUser.IsSuperAdmin)
+            if (_isSuperAdmin)
             {
                 _schools = await SessionDb.Schools
                     .Where(s => s.IsActive)
@@ -237,11 +243,9 @@
             }
 
             // Get user's school and create SchoolDbContext for that school
-            var userSchoolId = CurrentUser.SchoolId;
-
             if (userSchoolId == null)
             {
-                _error = "No school assigned to your account. Please contact your administrator. " +
+                _error = $"No school assigned to your account (Role: {userRole ?? "unknown"}). Please contact your administrator. " +
                     "Your Clever account may not have a school scope, or you may have access to multiple schools.";
                 _loading = false;
                 return;
