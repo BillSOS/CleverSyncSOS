@@ -1,6 +1,7 @@
 @page "/sections"
 @attribute [Authorize(Policy = "SchoolAdmin")]
 @using CleverSyncSOS.Core.Database.SessionDb
+@using CleverSyncSOS.Core.Database.SessionDb.Entities
 @using CleverSyncSOS.Core.Database.SchoolDb
 @using CleverSyncSOS.AdminPortal.Services
 @using Microsoft.EntityFrameworkCore
@@ -21,6 +22,21 @@
             <i class="oi oi-reload"></i> Refresh
         </button>
     </div>
+
+    @if (CurrentUser.IsSuperAdmin && _selectedSchoolId == 0 && _schools?.Count > 0)
+    {
+        <div class="alert alert-info mb-4" role="alert">
+            <h5>Select a School</h5>
+            <p>Please select a school to view its sections:</p>
+            <select class="form-select" @onchange="OnSchoolSelected">
+                <option value="0">-- Select a School --</option>
+                @foreach (var school in _schools)
+                {
+                    <option value="@school.SchoolId">@school.Name</option>
+                }
+            </select>
+        </div>
+    }
 
     @if (_loading)
     {
@@ -198,9 +214,11 @@
     private List<Section>? _sections;
     private List<Section>? _filteredSections;
     private List<Course>? _courses;
+    private List<School>? _schools;
     private bool _loading = true;
     private string? _error;
     private SchoolDbContext? _schoolDb;
+    private int _selectedSchoolId = 0;
 
     // Filters
     private string _courseFilter = "";
@@ -212,13 +230,35 @@
     {
         try
         {
+            // For Super Admin, load schools for selection
+            if (CurrentUser.IsSuperAdmin)
+            {
+                _schools = await SessionDb.Schools
+                    .Where(s => s.IsActive)
+                    .OrderBy(s => s.Name)
+                    .ToListAsync();
+                _loading = false;
+                return;
+            }
+
             // Get user's school and create SchoolDbContext for that school
+            var userSchoolId = CurrentUser.SchoolId;
+
+            if (userSchoolId == null)
+            {
+                _error = "No school assigned to your account. Please contact your administrator. " +
+                    "Your Clever account may not have a school scope, or you may have access to multiple schools.";
+                _loading = false;
+                return;
+            }
+
             var userSchool = await SessionDb.Schools
-                .FirstOrDefaultAsync(s => s.SchoolId == CurrentUser.SchoolId && s.IsActive);
+                .FirstOrDefaultAsync(s => s.SchoolId == userSchoolId && s.IsActive);
 
             if (userSchool == null)
             {
-                _error = "No active school found for your account.";
+                _error = $"School with ID {userSchoolId} not found or is inactive in the system. " +
+                    "The school may need to be registered in the CleverSyncSOS system.";
                 _loading = false;
                 return;
             }
@@ -230,6 +270,22 @@
         {
             _error = $"Failed to initialize: {ex.Message}";
             _loading = false;
+        }
+    }
+
+    private async Task OnSchoolSelected(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int schoolId) && schoolId > 0)
+        {
+            _selectedSchoolId = schoolId;
+            var selectedSchool = await SessionDb.Schools
+                .FirstOrDefaultAsync(s => s.SchoolId == schoolId && s.IsActive);
+
+            if (selectedSchool != null)
+            {
+                _schoolDb = await SchoolDbFactory.CreateSchoolContextAsync(selectedSchool);
+                await LoadData();
+            }
         }
     }
 
