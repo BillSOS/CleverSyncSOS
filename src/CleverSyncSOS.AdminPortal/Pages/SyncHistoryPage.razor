@@ -2,9 +2,12 @@
 @attribute [Authorize(Policy = "SchoolAdmin")]
 @using CleverSyncSOS.Core.Database.SessionDb
 @using CleverSyncSOS.Core.Database.SessionDb.Entities
+@using CleverSyncSOS.Core.Database.SchoolDb
+@using CleverSyncSOS.Core.Database.SchoolDb.Entities
 @using Microsoft.EntityFrameworkCore
 @using System.Text.Json
 @inject SessionDbContext DbContext
+@inject SchoolDatabaseConnectionFactory SchoolDbFactory
 @inject AuthenticationStateProvider AuthStateProvider
 
 <PageTitle>Sync History - CleverSync Admin</PageTitle>
@@ -270,6 +273,44 @@
                                                 </table>
                                             </div>
                                         }
+
+                                        @* Workshop Sync Audit Records *@
+                                        @if (_workshopAudits != null && _workshopAudits.Any())
+                                        {
+                                            <h6 class="mb-3 mt-4">
+                                                <span class="badge bg-purple text-white me-2">Workshop Sync</span>
+                                                Workshop Assignment Changes (@_workshopAudits.Count)
+                                            </h6>
+                                            <div class="table-responsive">
+                                                <table class="table table-sm table-bordered">
+                                                    <thead class="table-light">
+                                                        <tr>
+                                                            <th>Student</th>
+                                                            <th>Previous Workshop</th>
+                                                            <th>New Workshop</th>
+                                                            <th>Workshop Date</th>
+                                                            <th>Action</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        @foreach (var audit in _workshopAudits)
+                                                        {
+                                                            <tr>
+                                                                <td>@audit.StudentName</td>
+                                                                <td class="text-muted">@audit.OldWorkshopName</td>
+                                                                <td><strong>@audit.NewWorkshopName</strong></td>
+                                                                <td class="text-nowrap">@audit.WorkshopDate.ToString("yyyy-MM-dd")</td>
+                                                                <td>
+                                                                    <span class="badge @GetWorkshopActionBadgeClass(audit.ActionType)">
+                                                                        @audit.ActionType
+                                                                    </span>
+                                                                </td>
+                                                            </tr>
+                                                        }
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        }
                                     </div>
                                 </td>
                             </tr>
@@ -312,6 +353,7 @@
     // Details expansion
     private int? _expandedSyncId = null;
     private List<SyncChangeDetail>? _changeDetails = null;
+    private List<WorkshopAuditDto>? _workshopAudits = null;
     private bool _loadingDetails = false;
 
     protected override async Task OnInitializedAsync()
@@ -438,19 +480,29 @@
         {
             _expandedSyncId = null;
             _changeDetails = null;
+            _workshopAudits = null;
         }
         else
         {
             _expandedSyncId = syncId;
             _loadingDetails = true;
             _changeDetails = null;
+            _workshopAudits = null;
 
             try
             {
+                // Load sync change details
                 _changeDetails = await DbContext.SyncChangeDetails
                     .Where(c => c.SyncId == syncId)
                     .OrderBy(c => c.ChangedAt)
                     .ToListAsync();
+
+                // Load workshop audit records if this sync has a school
+                var syncHistory = _syncHistory?.FirstOrDefault(h => h.SyncId == syncId);
+                if (syncHistory?.School != null)
+                {
+                    _workshopAudits = await LoadWorkshopAuditsAsync(syncHistory.School.SchoolId, syncId);
+                }
             }
             catch (Exception ex)
             {
@@ -460,6 +512,55 @@
             {
                 _loadingDetails = false;
             }
+        }
+    }
+
+    private async Task<List<WorkshopAuditDto>> LoadWorkshopAuditsAsync(int schoolId, int syncId)
+    {
+        try
+        {
+            // Get the school to retrieve connection string
+            var school = await DbContext.Schools
+                .FirstOrDefaultAsync(s => s.SchoolId == schoolId);
+
+            if (school == null || string.IsNullOrEmpty(school.KeyVaultSchoolPrefix))
+                return new List<WorkshopAuditDto>();
+
+            // Create school database context
+            using var schoolDb = await SchoolDbFactory.CreateSchoolContextAsync(school);
+
+            // Query workshop sync audits using the ImportLogId (which maps to SyncId)
+            var audits = await schoolDb.WorkshopSyncAudits
+                .Where(a => a.ImportLogId == syncId)
+                .Include(a => a.Student)
+                .Include(a => a.OldWorkshopSchedule)
+                    .ThenInclude(ws => ws!.Workshop)
+                .Include(a => a.NewWorkshopSchedule)
+                    .ThenInclude(ws => ws!.Workshop)
+                .OrderBy(a => a.Student!.LastName)
+                    .ThenBy(a => a.Student!.FirstName)
+                .Select(a => new WorkshopAuditDto
+                {
+                    StudentName = a.Student != null
+                        ? $"{a.Student.LastName}, {a.Student.FirstName}"
+                        : "Unknown",
+                    OldWorkshopName = a.OldWorkshopSchedule != null && a.OldWorkshopSchedule.Workshop != null
+                        ? a.OldWorkshopSchedule.Workshop.WorkshopName
+                        : "-",
+                    NewWorkshopName = a.NewWorkshopSchedule != null && a.NewWorkshopSchedule.Workshop != null
+                        ? a.NewWorkshopSchedule.Workshop.WorkshopName
+                        : "-",
+                    WorkshopDate = a.WorkshopDate,
+                    ActionType = a.ActionType
+                })
+                .ToListAsync();
+
+            return audits;
+        }
+        catch
+        {
+            // Return empty list if school database is not accessible
+            return new List<WorkshopAuditDto>();
         }
     }
 
@@ -540,6 +641,17 @@
             "Created" => "bg-success",
             "Updated" => "bg-info",
             "Deleted" => "bg-danger",
+            _ => "bg-secondary"
+        };
+    }
+
+    private string GetWorkshopActionBadgeClass(string actionType)
+    {
+        return actionType?.ToLower() switch
+        {
+            "moved" => "bg-info",
+            "added" => "bg-success",
+            "removed" => "bg-danger",
             _ => "bg-secondary"
         };
     }
@@ -652,5 +764,15 @@
         public int SectionUpdated { get; set; }
         public int SectionDeleted { get; set; }
         public int EventsSkipped { get; set; }
+    }
+
+    // DTO for displaying WorkshopSyncAudit records
+    private class WorkshopAuditDto
+    {
+        public string StudentName { get; set; } = string.Empty;
+        public string OldWorkshopName { get; set; } = string.Empty;
+        public string NewWorkshopName { get; set; } = string.Empty;
+        public DateTime WorkshopDate { get; set; }
+        public string ActionType { get; set; } = string.Empty;
     }
 }

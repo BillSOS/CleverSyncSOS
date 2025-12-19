@@ -21,6 +21,8 @@ public class SessionDbContext : DbContext
     public DbSet<AuditLog> AuditLogs { get; set; } = null!;
     public DbSet<EventsLog> EventsLogs { get; set; } = null!;
     public DbSet<SyncWarning> SyncWarnings { get; set; } = null!;
+    public DbSet<SyncSchedule> SyncSchedules { get; set; } = null!;
+    public DbSet<SyncLock> SyncLocks { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -207,6 +209,45 @@ public class SessionDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(w => w.SyncId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Configure SyncSchedule entity
+        modelBuilder.Entity<SyncSchedule>(entity =>
+        {
+            entity.HasKey(e => e.SyncScheduleId);
+            entity.HasIndex(e => e.DistrictId);
+            entity.HasIndex(e => e.IsEnabled);
+            entity.HasIndex(e => new { e.IsEnabled, e.LocalHour, e.LocalMinute });
+
+            entity.Property(e => e.ScheduleName).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.LocalHour).IsRequired();
+            entity.Property(e => e.LocalMinute).IsRequired();
+            entity.Property(e => e.DaysOfWeek).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.IsEnabled).IsRequired().HasDefaultValue(true);
+            entity.Property(e => e.CreatedAt).IsRequired();
+            entity.Property(e => e.UpdatedAt).IsRequired();
+            entity.Property(e => e.CreatedBy).HasMaxLength(255);
+
+            // Configure relationship with District
+            entity.HasOne(s => s.District)
+                .WithMany()
+                .HasForeignKey(s => s.DistrictId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Configure SyncLock entity
+        modelBuilder.Entity<SyncLock>(entity =>
+        {
+            entity.HasKey(e => e.Scope);
+            entity.HasIndex(e => e.ExpiresAt);
+
+            entity.Property(e => e.Scope).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.LockId).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.AcquiredBy).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.InitiatedBy).HasMaxLength(255);
+            entity.Property(e => e.AcquiredAt).IsRequired();
+            entity.Property(e => e.ExpiresAt).IsRequired();
+            entity.Property(e => e.MachineName).HasMaxLength(100);
         });
     }
 }

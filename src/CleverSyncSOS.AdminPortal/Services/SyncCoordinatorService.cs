@@ -1,6 +1,7 @@
 using CleverSyncSOS.AdminPortal.Hubs;
 using CleverSyncSOS.AdminPortal.Models.ViewModels;
 using CleverSyncSOS.Core.Database.SessionDb;
+using CleverSyncSOS.Core.Services;
 using CleverSyncSOS.Core.Sync;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
@@ -10,6 +11,7 @@ namespace CleverSyncSOS.AdminPortal.Services;
 
 /// <summary>
 /// Implementation of ISyncCoordinatorService for orchestrating sync operations with SignalR progress.
+/// Uses database-based distributed locking to prevent concurrent syncs across Admin Portal and Azure Functions.
 /// Based on manual-sync-feature-plan.md
 /// </summary>
 public class SyncCoordinatorService : ISyncCoordinatorService
@@ -20,6 +22,7 @@ public class SyncCoordinatorService : ISyncCoordinatorService
     private readonly ILogger<SyncCoordinatorService> _logger;
     private readonly SessionDbContext _dbContext;
     private readonly ActiveSyncTracker _activeSyncTracker;
+    private readonly ISyncLockService _syncLockService;
 
     public SyncCoordinatorService(
         ISyncService syncService,
@@ -27,7 +30,8 @@ public class SyncCoordinatorService : ISyncCoordinatorService
         IAuditLogService auditLogService,
         ILogger<SyncCoordinatorService> logger,
         SessionDbContext dbContext,
-        ActiveSyncTracker activeSyncTracker)
+        ActiveSyncTracker activeSyncTracker,
+        ISyncLockService syncLockService)
     {
         _syncService = syncService;
         _hubContext = hubContext;
@@ -35,11 +39,20 @@ public class SyncCoordinatorService : ISyncCoordinatorService
         _logger = logger;
         _dbContext = dbContext;
         _activeSyncTracker = activeSyncTracker;
+        _syncLockService = syncLockService;
     }
 
-    public Task<bool> IsSyncInProgressAsync(string scope)
+    public async Task<bool> IsSyncInProgressAsync(string scope)
     {
-        return Task.FromResult(_activeSyncTracker.ContainsKey(scope));
+        // Check database-based distributed lock first (cross-process)
+        var lockInfo = await _syncLockService.GetLockInfoAsync(scope);
+        if (lockInfo != null && lockInfo.IsLocked)
+        {
+            return true;
+        }
+
+        // Also check local in-memory tracker for UI updates
+        return _activeSyncTracker.ContainsKey(scope);
     }
 
     public async Task<SyncResultViewModel> StartSyncAsync(
@@ -48,13 +61,36 @@ public class SyncCoordinatorService : ISyncCoordinatorService
         SyncMode syncMode,
         string connectionId)
     {
-        // Check for concurrent sync
-        if (_activeSyncTracker.ContainsKey(scope))
+        // Get user info for lock tracking
+        var user = await _dbContext.Users.FindAsync(userId);
+        var initiatedBy = user?.DisplayName ?? $"User:{userId}";
+
+        // Acquire database-based distributed lock (works across Admin Portal + Azure Functions)
+        var lockResult = await _syncLockService.TryAcquireLockAsync(
+            scope,
+            acquiredBy: "AdminPortal",
+            initiatedBy: initiatedBy,
+            durationMinutes: 60); // 60 minutes max sync duration
+
+        if (!lockResult.Success)
         {
-            throw new InvalidOperationException($"Sync already in progress for scope: {scope}");
+            var holder = lockResult.CurrentHolder ?? "unknown";
+            var holderInitiatedBy = lockResult.CurrentHolderInitiatedBy ?? "unknown";
+            var message = $"Sync already in progress for scope: {scope}. Currently held by {holder} (initiated by {holderInitiatedBy})";
+
+            if (lockResult.CurrentHolderAcquiredAt.HasValue)
+            {
+                var duration = DateTime.UtcNow - lockResult.CurrentHolderAcquiredAt.Value;
+                message += $" for {duration.TotalMinutes:F1} minutes";
+            }
+
+            _logger.LogWarning(message);
+            throw new InvalidOperationException(message);
         }
 
-        // Initialize progress tracking
+        var lockId = lockResult.LockId!;
+
+        // Initialize progress tracking (local in-memory tracker for UI updates)
         var progress = new SyncProgressUpdate
         {
             SyncId = Guid.NewGuid().ToString(),
@@ -204,7 +240,14 @@ public class SyncCoordinatorService : ISyncCoordinatorService
         }
         finally
         {
-            // Remove from active syncs
+            // Release database-based distributed lock
+            var released = await _syncLockService.ReleaseLockAsync(scope, lockId);
+            if (!released)
+            {
+                _logger.LogWarning("Failed to release lock for scope {Scope} with lockId {LockId}", scope, lockId);
+            }
+
+            // Remove from local in-memory tracker (for UI updates)
             _activeSyncTracker.TryRemove(scope);
         }
     }

@@ -15,6 +15,7 @@ using CleverSyncSOS.Core.Database.SchoolDb;
 using CleverSyncSOS.Core.Database.SessionDb;
 using CleverSyncSOS.Core.Services;
 using CleverSyncSOS.Core.Sync;
+using CleverSyncSOS.Core.Sync.Workshop;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -174,10 +175,14 @@ public static class ServiceCollectionExtensions
                 "Please set ConnectionStrings:SessionDb in appsettings.json or environment variables.");
         }
 
-        services.AddDbContext<SessionDbContext>(options =>
+        // Use DbContextFactory for better concurrent access (used by SyncLockService and other services)
+        services.AddPooledDbContextFactory<SessionDbContext>(options =>
         {
             options.UseSqlServer(sessionDbConnectionString);
         });
+
+        // Also register scoped SessionDbContext for backwards compatibility
+        services.AddScoped(sp => sp.GetRequiredService<IDbContextFactory<SessionDbContext>>().CreateDbContext());
 
         // Register SchoolDatabaseConnectionFactory for per-school databases
         // School connection strings are retrieved from Azure Key Vault via ICredentialStore
@@ -186,6 +191,18 @@ public static class ServiceCollectionExtensions
         // Register LocalTimeService for timezone-aware timestamp handling
         // Converts UTC to local time based on district's LocalTimeZone setting
         services.AddScoped<ILocalTimeService, LocalTimeService>();
+
+        // Register SyncScheduleService for managing scheduled sync times
+        // Allows Super Admins to configure when syncs run via the Admin Portal
+        services.AddScoped<ISyncScheduleService, SyncScheduleService>();
+
+        // Register SyncLockService for distributed locking across Admin Portal and Azure Functions
+        // Uses database row-level locking to prevent concurrent sync operations
+        services.AddScoped<ISyncLockService, SyncLockService>();
+
+        // Register WorkshopSyncService for executing workshop sync stored procedure
+        // Separated from main SyncService to improve code organization and testability
+        services.AddScoped<IWorkshopSyncService, WorkshopSyncService>();
 
         // Register SyncService for orchestration
         services.AddScoped<ISyncService, SyncService>();

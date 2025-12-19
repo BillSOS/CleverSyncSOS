@@ -15,6 +15,7 @@ using CleverSyncSOS.Core.Database.SchoolDb.Entities;
 using CleverSyncSOS.Core.Database.SessionDb;
 using CleverSyncSOS.Core.Database.SessionDb.Entities;
 using CleverSyncSOS.Core.Services;
+using CleverSyncSOS.Core.Sync.Workshop;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -31,6 +32,7 @@ public class SyncService : ISyncService
     private readonly SessionDbContext _sessionDb;
     private readonly SchoolDatabaseConnectionFactory _schoolDbFactory;
     private readonly ILocalTimeService _localTimeService;
+    private readonly IWorkshopSyncService _workshopSyncService;
     private readonly ILogger<SyncService> _logger;
 
     public SyncService(
@@ -38,12 +40,14 @@ public class SyncService : ISyncService
         SessionDbContext sessionDb,
         SchoolDatabaseConnectionFactory schoolDbFactory,
         ILocalTimeService localTimeService,
+        IWorkshopSyncService workshopSyncService,
         ILogger<SyncService> logger)
     {
         _cleverClient = cleverClient;
         _sessionDb = sessionDb;
         _schoolDbFactory = schoolDbFactory;
         _localTimeService = localTimeService;
+        _workshopSyncService = workshopSyncService;
         _logger = logger;
     }
 
@@ -245,14 +249,46 @@ public class SyncService : ISyncService
                 CurrentOperation = $"Starting {result.SyncType} sync for {school.Name}..."
             });
 
+            // Create workshop tracker to detect workshop-relevant changes
+            var workshopTracker = new WorkshopSyncTracker();
+
+            // Get the Section SyncId for workshop sync (will be populated during sync)
+            int sectionSyncId = 0;
+
             // Step 4e-4g: Sync students and teachers
             if (isFullSync)
             {
-                await PerformFullSyncAsync(school, schoolDb, result, timeContext, progress, cancellationToken);
+                sectionSyncId = await PerformFullSyncAsync(school, schoolDb, result, timeContext, progress, workshopTracker, cancellationToken);
             }
             else
             {
-                await PerformIncrementalSyncAsync(school, schoolDb, result, lastSync!.LastSyncTimestamp, timeContext, progress, cancellationToken);
+                sectionSyncId = await PerformIncrementalSyncAsync(school, schoolDb, result, lastSync!.LastSyncTimestamp, timeContext, progress, workshopTracker, cancellationToken);
+            }
+
+            // Execute workshop sync if there were workshop-relevant changes
+            if (sectionSyncId > 0)
+            {
+                progress?.Report(new SyncProgress
+                {
+                    CurrentOperation = "Syncing Workshops linked to Sections or Grades"
+                });
+
+                var workshopResult = await _workshopSyncService.ExecuteWorkshopSyncAsync(
+                    schoolDb, sectionSyncId, workshopTracker, cancellationToken);
+
+                if (!workshopResult.Success && !workshopResult.Skipped)
+                {
+                    result.WarningsGenerated++;
+                    result.Warnings.Add(new SyncWarningInfo
+                    {
+                        WarningType = "WorkshopSyncFailed",
+                        EntityType = "Workshop",
+                        EntityId = 0,
+                        EntityName = "Workshop Sync",
+                        Message = $"Workshop sync stored procedure failed: {workshopResult.ErrorMessage}",
+                        AffectedWorkshopNames = new List<string>()
+                    });
+                }
             }
 
             // Reset RequiresFullSync flag after successful full sync
@@ -286,12 +322,14 @@ public class SyncService : ISyncService
     /// Performs a full sync with hard-delete for inactive records.
     /// Source: FR-025 - Beginning-of-year sync with hard-delete behavior
     /// </summary>
-    private async Task PerformFullSyncAsync(
+    /// <returns>The SyncId to use for workshop sync (Student SyncId)</returns>
+    private async Task<int> PerformFullSyncAsync(
         School school,
         SchoolDbContext schoolDb,
         SyncResult result,
         ISchoolTimeContext timeContext,
         IProgress<SyncProgress>? progress,
+        WorkshopSyncTracker workshopTracker,
         CancellationToken cancellationToken)
     {
         _logger.LogInformation("Performing FULL sync for school {SchoolId}", school.SchoolId);
@@ -311,7 +349,8 @@ public class SyncService : ISyncService
 
         // Step 2: Fetch all students and teachers from Clever API
         // Pass syncStartTime (local time) so next incremental sync has a valid timestamp
-        await SyncStudentsAsync(school, schoolDb, result, syncStartTime, timeContext, progress, 20, 60, cancellationToken);
+        // Also pass workshopTracker to track grade changes
+        int studentSyncId = await SyncStudentsAsync(school, schoolDb, result, syncStartTime, timeContext, progress, 20, 60, workshopTracker, cancellationToken);
 
         progress?.Report(new SyncProgress
         {
@@ -322,7 +361,18 @@ public class SyncService : ISyncService
         });
 
         // Pass syncStartTime (local time) so next incremental sync has a valid timestamp
-        await SyncTeachersAsync(school, schoolDb, result, syncStartTime, timeContext, progress, 60, 90, cancellationToken);
+        await SyncTeachersAsync(school, schoolDb, result, syncStartTime, timeContext, progress, 60, 80, cancellationToken);
+
+        progress?.Report(new SyncProgress
+        {
+            PercentComplete = 80,
+            CurrentOperation = "Syncing sections from Clever API...",
+            StudentsProcessed = result.StudentsProcessed,
+            TeachersProcessed = result.TeachersProcessed
+        });
+
+        // Sync sections (includes student enrollments which may trigger workshop sync)
+        int sectionSyncId = await SyncSectionsAsync(school, schoolDb, result, timeContext, progress, 80, 90, workshopTracker, cancellationToken);
 
         // Step 3: Soft-delete students and teachers not seen in this sync
         // Records not seen will have LastSyncedAt < syncStartTime
@@ -391,6 +441,9 @@ public class SyncService : ISyncService
         {
             _logger.LogWarning(ex, "Failed to establish baseline for school {SchoolId}", school.SchoolId);
         }
+
+        // Return the Section SyncId for workshop sync (section sync includes student enrollments)
+        return sectionSyncId;
     }
 
     /// <summary>
@@ -398,13 +451,15 @@ public class SyncService : ISyncService
     /// Source: FR-024 - Incremental sync using Events API
     /// Documentation: https://dev.clever.com/docs/events-api
     /// </summary>
-    private async Task PerformIncrementalSyncAsync(
+    /// <returns>The SyncId to use for workshop sync (Event SyncId)</returns>
+    private async Task<int> PerformIncrementalSyncAsync(
         School school,
         SchoolDbContext schoolDb,
         SyncResult result,
         DateTime? lastModified,
         ISchoolTimeContext timeContext,
         IProgress<SyncProgress>? progress,
+        WorkshopSyncTracker workshopTracker,
         CancellationToken cancellationToken)
     {
         _logger.LogInformation("Performing INCREMENTAL sync for school {SchoolId} using Events API",
@@ -424,12 +479,13 @@ public class SyncService : ISyncService
 
             // Fetch all students and teachers without marking them inactive
             // The UpsertStudentAsync method will detect actual changes
-            await SyncStudentsAsync(school, schoolDb, result, lastModified, timeContext, progress, 10, 60, cancellationToken);
+            // Pass workshopTracker to track grade changes
+            int studentSyncId = await SyncStudentsAsync(school, schoolDb, result, lastModified, timeContext, progress, 10, 60, workshopTracker, cancellationToken);
             await SyncTeachersAsync(school, schoolDb, result, lastModified, timeContext, progress, 60, 100, cancellationToken);
 
             _logger.LogInformation("Incremental sync complete using data API. Students: {Processed} processed, {Updated} updated",
                 result.StudentsProcessed, result.StudentsUpdated);
-            return;
+            return studentSyncId;
         }
 
         _logger.LogInformation("Fetching events after event ID: {EventId}", lastEventId);
@@ -469,7 +525,8 @@ public class SyncService : ISyncService
             _sessionDb.SyncHistory.Add(noEventsSyncHistory);
             await _sessionDb.SaveChangesAsync(cancellationToken);
 
-            return;
+            // Return 0 - no SyncId to use for workshop sync when no events
+            return 0;
         }
 
         // Create SyncHistory record first to get the SyncId for change tracking
@@ -491,6 +548,9 @@ public class SyncService : ISyncService
         // Create change tracker for detailed change logging
         var changeTracker = new ChangeTracker(_sessionDb, _logger);
 
+        // Pre-load workshop-linked sections for efficient lookup during section event processing
+        var workshopLinkedSectionIds = await _workshopSyncService.GetWorkshopLinkedSectionIdsAsync(schoolDb, cancellationToken);
+
         // Process events in chronological order (they're already sorted oldest to newest)
         string? latestEventId = null;
         int eventsProcessed = 0;
@@ -498,7 +558,7 @@ public class SyncService : ISyncService
         {
             try
             {
-                await ProcessEventAsync(school, schoolDb, evt, result, eventSyncHistory.SyncId, changeTracker, timeContext, cancellationToken);
+                await ProcessEventAsync(school, schoolDb, evt, result, eventSyncHistory.SyncId, changeTracker, timeContext, workshopTracker, workshopLinkedSectionIds, cancellationToken);
                 latestEventId = evt.Id; // Track the latest event ID we've processed
                 eventsProcessed++;
 
@@ -554,11 +614,14 @@ public class SyncService : ISyncService
             _logger.LogInformation("Incremental sync complete. Last event ID: {EventId}. {EventsSummary}",
                 latestEventId, result.EventsSummary?.ToDisplayString() ?? "No events");
         }
+
+        // Return the Event SyncId for workshop sync
+        return eventSyncHistory.SyncId;
     }
 
     /// <summary>
     /// Processes a single event from Clever's Events API.
-    /// Handles created, updated, and deleted events for students and teachers.
+    /// Handles created, updated, and deleted events for students, teachers, and sections.
     /// </summary>
     private async Task ProcessEventAsync(
         School school,
@@ -568,6 +631,8 @@ public class SyncService : ISyncService
         int syncId,
         ChangeTracker changeTracker,
         ISchoolTimeContext timeContext,
+        WorkshopSyncTracker workshopTracker,
+        HashSet<int> workshopLinkedSectionIds,
         CancellationToken cancellationToken)
     {
         var objectType = evt.Data.Object;
@@ -771,7 +836,7 @@ public class SyncService : ISyncService
                             if (sectionForCreateAssoc.SectionId > 0)
                             {
                                 await SyncSectionTeachersAsync(schoolDb, sectionForCreateAssoc, cleverSection.Teachers, cleverSection.Teacher, timeContext, cancellationToken);
-                                await SyncSectionStudentsAsync(schoolDb, sectionForCreateAssoc, cleverSection.Students, timeContext, cancellationToken);
+                                await SyncSectionStudentsAsync(schoolDb, sectionForCreateAssoc, cleverSection.Students, timeContext, cancellationToken, workshopLinkedSectionIds, workshopTracker);
                             }
 
                             await schoolDb.SaveChangesAsync(cancellationToken);
@@ -819,7 +884,7 @@ public class SyncService : ISyncService
                             if (sectionForUpdateAssoc.SectionId > 0)
                             {
                                 await SyncSectionTeachersAsync(schoolDb, sectionForUpdateAssoc, cleverSection.Teachers, cleverSection.Teacher, timeContext, cancellationToken);
-                                await SyncSectionStudentsAsync(schoolDb, sectionForUpdateAssoc, cleverSection.Students, timeContext, cancellationToken);
+                                await SyncSectionStudentsAsync(schoolDb, sectionForUpdateAssoc, cleverSection.Students, timeContext, cancellationToken, workshopLinkedSectionIds, workshopTracker);
                             }
 
                             await schoolDb.SaveChangesAsync(cancellationToken);
@@ -859,7 +924,8 @@ public class SyncService : ISyncService
     /// <summary>
     /// Syncs students from Clever API to school database.
     /// </summary>
-    private async Task SyncStudentsAsync(
+    /// <returns>The SyncId from the Student SyncHistory record</returns>
+    private async Task<int> SyncStudentsAsync(
         School school,
         SchoolDbContext schoolDb,
         SyncResult result,
@@ -868,6 +934,7 @@ public class SyncService : ISyncService
         IProgress<SyncProgress>? progress,
         int startPercent,
         int endPercent,
+        WorkshopSyncTracker? workshopTracker,
         CancellationToken cancellationToken)
     {
         var syncHistory = new SyncHistory
@@ -905,7 +972,8 @@ public class SyncService : ISyncService
                 try
                 {
                     result.StudentsProcessed++; // Count every student examined
-                    bool hasChanges = await UpsertStudentAsync(schoolDb, cleverStudent, syncHistory.SyncId, changeTracker, timeContext, cancellationToken);
+                    // Pass workshopTracker to track grade changes
+                    bool hasChanges = await UpsertStudentAsync(schoolDb, cleverStudent, syncHistory.SyncId, changeTracker, timeContext, cancellationToken, workshopTracker);
                     if (hasChanges)
                     {
                         result.StudentsUpdated++; // Only count if actually changed
@@ -953,6 +1021,8 @@ public class SyncService : ISyncService
             syncHistory.SyncEndTime = DateTime.UtcNow;
             await _sessionDb.SaveChangesAsync(cancellationToken);
         }
+
+        return syncHistory.SyncId;
     }
 
     /// <summary>
@@ -1062,13 +1132,21 @@ public class SyncService : ISyncService
     /// Source: FR-014 - Upsert logic for students
     /// Syncs fields: FirstName, MiddleName, LastName, Grade, GradeLevel, StudentNumber, StateStudentId
     /// </summary>
+    /// <param name="schoolDb">School database context</param>
+    /// <param name="cleverStudent">Student data from Clever API</param>
+    /// <param name="syncId">Current sync ID for change tracking</param>
+    /// <param name="changeTracker">Change tracker for audit logging</param>
+    /// <param name="timeContext">Time context for timestamps</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <param name="workshopTracker">Optional tracker for workshop-relevant changes (grade changes)</param>
     private async Task<bool> UpsertStudentAsync(
         SchoolDbContext schoolDb,
         CleverStudent cleverStudent,
         int syncId,
         ChangeTracker changeTracker,
         ISchoolTimeContext timeContext,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        WorkshopSyncTracker? workshopTracker = null)
     {
         var student = await schoolDb.Students
             .FirstOrDefaultAsync(s => s.CleverStudentId == cleverStudent.Id, cancellationToken);
@@ -1125,6 +1203,17 @@ public class SyncService : ISyncService
             if (firstNameChanged || middleNameChanged || lastNameChanged || gradeChanged ||
                 gradeLevelChanged || studentNumberChanged || stateStudentIdChanged || wasDeleted)
             {
+                // Track grade changes for workshop sync
+                if (gradeChanged && workshopTracker != null)
+                {
+                    workshopTracker.HasGradeChanges = true;
+                    workshopTracker.StudentGradesChanged++;
+                    _logger.LogDebug(
+                        "Student {StudentId} ({Name}) grade changed from {OldGrade} to {NewGrade}",
+                        student.StudentId, $"{student.FirstName} {student.LastName}",
+                        student.Grade, parsedGrade);
+                }
+
                 // Capture old state before updating
                 var oldStudent = new Student
                 {
@@ -1317,7 +1406,8 @@ public class SyncService : ISyncService
     /// Note: Courses are NOT synced - CleverCourseId is stored on sections for reference only.
     /// Includes change detection and workshop-linked section warnings.
     /// </summary>
-    private async Task SyncSectionsAsync(
+    /// <returns>The SyncId from the Section SyncHistory record for workshop sync</returns>
+    private async Task<int> SyncSectionsAsync(
         School school,
         SchoolDbContext schoolDb,
         SyncResult result,
@@ -1325,6 +1415,7 @@ public class SyncService : ISyncService
         IProgress<SyncProgress>? progress,
         int startPercent,
         int endPercent,
+        WorkshopSyncTracker workshopTracker,
         CancellationToken cancellationToken)
     {
         var syncHistory = new SyncHistory
@@ -1350,10 +1441,7 @@ public class SyncService : ISyncService
                 cleverSections.Length, school.SchoolId);
 
             // Pre-load all workshop-linked sections for efficient lookup
-            var workshopLinkedSectionIds = await schoolDb.WorkshopSections
-                .Select(ws => ws.SectionId)
-                .Distinct()
-                .ToHashSetAsync(cancellationToken);
+            var workshopLinkedSectionIds = await _workshopSyncService.GetWorkshopLinkedSectionIdsAsync(schoolDb, cancellationToken);
 
             _logger.LogDebug("Found {Count} sections linked to workshops", workshopLinkedSectionIds.Count);
 
@@ -1398,7 +1486,7 @@ public class SyncService : ISyncService
 
                         // Handle associations for new section
                         await SyncSectionTeachersAsync(schoolDb, newSection, cleverSection.Teachers, cleverSection.Teacher, timeContext, cancellationToken);
-                        await SyncSectionStudentsAsync(schoolDb, newSection, cleverSection.Students, timeContext, cancellationToken);
+                        await SyncSectionStudentsAsync(schoolDb, newSection, cleverSection.Students, timeContext, cancellationToken, workshopLinkedSectionIds, workshopTracker);
                     }
                     else
                     {
@@ -1415,7 +1503,7 @@ public class SyncService : ISyncService
 
                         // Handle associations (always sync to ensure accuracy)
                         await SyncSectionTeachersAsync(schoolDb, existingSection, cleverSection.Teachers, cleverSection.Teacher, timeContext, cancellationToken);
-                        await SyncSectionStudentsAsync(schoolDb, existingSection, cleverSection.Students, timeContext, cancellationToken);
+                        await SyncSectionStudentsAsync(schoolDb, existingSection, cleverSection.Students, timeContext, cancellationToken, workshopLinkedSectionIds, workshopTracker);
                     }
 
                     if ((i + 1) % 50 == 0 || i == totalSections - 1)
@@ -1462,6 +1550,8 @@ public class SyncService : ISyncService
             syncHistory.SyncEndTime = DateTime.UtcNow;
             await _sessionDb.SaveChangesAsync(cancellationToken);
         }
+
+        return syncHistory.SyncId;
     }
 
     /// <summary>
@@ -1726,16 +1816,29 @@ public class SyncService : ISyncService
 
     /// <summary>
     /// Syncs student-section enrollments for a given section.
+    /// Optionally tracks changes to workshop-linked sections for triggering workshop sync.
     /// </summary>
+    /// <param name="schoolDb">School database context</param>
+    /// <param name="section">The section to sync enrollments for</param>
+    /// <param name="cleverStudentIds">Student IDs from Clever API</param>
+    /// <param name="timeContext">Time context for timestamps</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <param name="workshopLinkedSectionIds">Optional set of section IDs linked to workshops</param>
+    /// <param name="workshopTracker">Optional tracker for workshop-relevant changes</param>
     private async Task SyncSectionStudentsAsync(
         SchoolDbContext schoolDb,
         Section section,
         string[] cleverStudentIds,
         ISchoolTimeContext timeContext,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        HashSet<int>? workshopLinkedSectionIds = null,
+        WorkshopSyncTracker? workshopTracker = null)
     {
         var now = timeContext.Now;
         var incomingStudentIds = cleverStudentIds ?? Array.Empty<string>();
+
+        // Check if this section is linked to workshops
+        var isWorkshopLinkedSection = workshopLinkedSectionIds?.Contains(section.SectionId) ?? false;
 
         // Get existing enrollments for this section
         var existingEnrollments = await schoolDb.StudentSections
@@ -1750,6 +1853,7 @@ public class SyncService : ISyncService
 
         // Track which enrollments to keep
         var enrollmentsToKeep = new HashSet<int>();
+        int studentsAdded = 0;
 
         // Process incoming enrollments
         foreach (var cleverStudentId in incomingStudentIds)
@@ -1775,6 +1879,7 @@ public class SyncService : ISyncService
                         CreatedAt = now
                     };
                     schoolDb.StudentSections.Add(enrollment);
+                    studentsAdded++;
                 }
             }
             else
@@ -1788,9 +1893,22 @@ public class SyncService : ISyncService
         var enrollmentsToRemove = existingEnrollments
             .Where(e => !enrollmentsToKeep.Contains(e.StudentSectionId))
             .ToList();
+        int studentsRemoved = enrollmentsToRemove.Count;
         schoolDb.StudentSections.RemoveRange(enrollmentsToRemove);
 
         await schoolDb.SaveChangesAsync(cancellationToken);
+
+        // Track workshop-relevant changes if this is a workshop-linked section
+        if (isWorkshopLinkedSection && workshopTracker != null && (studentsAdded > 0 || studentsRemoved > 0))
+        {
+            workshopTracker.HasWorkshopEnrollmentChanges = true;
+            workshopTracker.StudentsAddedToWorkshopSections += studentsAdded;
+            workshopTracker.StudentsRemovedFromWorkshopSections += studentsRemoved;
+
+            _logger.LogDebug(
+                "Workshop-linked section {SectionId} ({SectionName}): {Added} students added, {Removed} students removed",
+                section.SectionId, section.SectionName, studentsAdded, studentsRemoved);
+        }
     }
 
     /// <summary>

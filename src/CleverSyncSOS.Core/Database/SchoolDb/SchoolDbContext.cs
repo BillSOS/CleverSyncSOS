@@ -22,6 +22,8 @@ public class SchoolDbContext : DbContext
     public DbSet<StudentSection> StudentSections { get; set; } = null!;
     public DbSet<Workshop> Workshops { get; set; } = null!;
     public DbSet<WorkshopSection> WorkshopSections { get; set; } = null!;
+    public DbSet<WorkshopSchedule> WorkshopSchedules { get; set; } = null!;
+    public DbSet<WorkshopSyncAudit> WorkshopSyncAudits { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -178,6 +180,49 @@ public class SchoolDbContext : DbContext
                   .WithMany()
                   .HasForeignKey(e => e.SectionId)
                   .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // Configure WorkshopSchedule entity
+        modelBuilder.Entity<WorkshopSchedule>(entity =>
+        {
+            entity.HasKey(e => e.WorkshopScheduleId);
+            entity.HasIndex(e => e.WorkshopId);
+            entity.HasIndex(e => e.WorkshopDate);
+
+            // Relationship: WorkshopSchedule -> Workshop
+            entity.HasOne(e => e.Workshop)
+                  .WithMany()
+                  .HasForeignKey(e => e.WorkshopId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Configure WorkshopSyncAudit entity
+        modelBuilder.Entity<WorkshopSyncAudit>(entity =>
+        {
+            entity.HasKey(e => e.WorkshopSyncAuditId);
+            entity.HasIndex(e => e.StudentId);
+            entity.HasIndex(e => e.ImportLogId); // For querying by SyncId
+            entity.HasIndex(e => e.WorkshopDate);
+
+            entity.Property(e => e.ActionType).IsRequired().HasMaxLength(50);
+
+            // Relationship: WorkshopSyncAudit -> Student
+            entity.HasOne(e => e.Student)
+                  .WithMany()
+                  .HasForeignKey(e => e.StudentId)
+                  .OnDelete(DeleteBehavior.NoAction);
+
+            // Relationship: WorkshopSyncAudit -> OldWorkshopSchedule
+            entity.HasOne(e => e.OldWorkshopSchedule)
+                  .WithMany()
+                  .HasForeignKey(e => e.OldWorkshopScheduleId)
+                  .OnDelete(DeleteBehavior.NoAction);
+
+            // Relationship: WorkshopSyncAudit -> NewWorkshopSchedule
+            entity.HasOne(e => e.NewWorkshopSchedule)
+                  .WithMany()
+                  .HasForeignKey(e => e.NewWorkshopScheduleId)
+                  .OnDelete(DeleteBehavior.NoAction);
         });
     }
 }

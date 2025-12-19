@@ -138,6 +138,9 @@ builder.Services.AddScoped<IEventsCheckService, EventsCheckService>();
 
 // Register Core sync service and dependencies (from CleverSyncSOS.Core)
 builder.Services.AddScoped<CleverSyncSOS.Core.Services.ILocalTimeService, CleverSyncSOS.Core.Services.LocalTimeService>();
+builder.Services.AddScoped<CleverSyncSOS.Core.Services.ISyncScheduleService, CleverSyncSOS.Core.Services.SyncScheduleService>();
+builder.Services.AddScoped<CleverSyncSOS.Core.Services.ISyncLockService, CleverSyncSOS.Core.Services.SyncLockService>();
+builder.Services.AddScoped<CleverSyncSOS.Core.Sync.Workshop.IWorkshopSyncService, CleverSyncSOS.Core.Sync.Workshop.WorkshopSyncService>();
 builder.Services.AddScoped<CleverSyncSOS.Core.Sync.ISyncService, CleverSyncSOS.Core.Sync.SyncService>();
 
 // Register the school DB factory (concrete type used directly by SyncService)
