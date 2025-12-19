@@ -6,7 +6,7 @@
 @using CleverSyncSOS.AdminPortal.Services
 @using Microsoft.EntityFrameworkCore
 @inject HealthCheckService HealthCheckService
-@inject SessionDbContext DbContext
+@inject IDbContextFactory<SessionDbContext> DbContextFactory
 @inject ICurrentUserService CurrentUser
 @inject IJSRuntime JS
 
@@ -226,8 +226,12 @@
                 _healthReport = null;
             }
 
+            // Create a new DbContext for this operation to avoid disposed context issues
+            // when called from timer callbacks (which run outside the normal request scope)
+            await using var dbContext = await DbContextFactory.CreateDbContextAsync();
+
             // Load school metrics (scoped by user role)
-            var schoolsQuery = DbContext.Schools.AsQueryable();
+            var schoolsQuery = dbContext.Schools.AsQueryable();
 
             if (CurrentUser.IsSchoolAdmin && CurrentUser.SchoolId.HasValue)
             {
@@ -242,7 +246,7 @@
             _activeSchoolCount = await schoolsQuery.Where(s => s.IsActive).CountAsync();
 
             // Load sync metrics (last 24 hours)
-            var syncHistoryQuery = DbContext.SyncHistory
+            var syncHistoryQuery = dbContext.SyncHistory
                 .Where(s => s.SyncStartTime >= DateTime.UtcNow.AddDays(-1));
 
             if (CurrentUser.IsSchoolAdmin && CurrentUser.SchoolId.HasValue)
@@ -260,7 +264,7 @@
             _failedSyncCount = await syncHistoryQuery.Where(s => s.Status == "Failed").CountAsync();
 
             // Get last sync time
-            _lastSyncTime = await DbContext.SyncHistory
+            _lastSyncTime = await dbContext.SyncHistory
                 .OrderByDescending(s => s.SyncStartTime)
                 .Select(s => s.SyncStartTime)
                 .FirstOrDefaultAsync();
@@ -296,29 +300,47 @@
         return "User";
     }
 
+    private string? _cachedTimeZoneId;
+
     private string GetTimeZoneId()
     {
+        // Return cached value if available (avoids creating DbContext on every call)
+        if (_cachedTimeZoneId != null)
+        {
+            return _cachedTimeZoneId;
+        }
+
         // Try to get timezone from user's district
         string? timeZoneId = null;
 
-        if (!string.IsNullOrEmpty(CurrentUser.DistrictId))
+        try
         {
-            timeZoneId = DbContext.Districts
-                .Where(d => d.CleverDistrictId == CurrentUser.DistrictId)
-                .Select(d => d.LocalTimeZone)
-                .FirstOrDefault();
+            using var dbContext = DbContextFactory.CreateDbContext();
+
+            if (!string.IsNullOrEmpty(CurrentUser.DistrictId))
+            {
+                timeZoneId = dbContext.Districts
+                    .Where(d => d.CleverDistrictId == CurrentUser.DistrictId)
+                    .Select(d => d.LocalTimeZone)
+                    .FirstOrDefault();
+            }
+            else if (CurrentUser.SchoolId.HasValue)
+            {
+                // Get timezone from school's district
+                timeZoneId = dbContext.Schools
+                    .Where(s => s.SchoolId == CurrentUser.SchoolId.Value)
+                    .Join(dbContext.Districts, s => s.DistrictId, d => d.CleverDistrictId, (s, d) => d.LocalTimeZone)
+                    .FirstOrDefault();
+            }
         }
-        else if (CurrentUser.SchoolId.HasValue)
+        catch
         {
-            // Get timezone from school's district
-            timeZoneId = DbContext.Schools
-                .Where(s => s.SchoolId == CurrentUser.SchoolId.Value)
-                .Join(DbContext.Districts, s => s.DistrictId, d => d.CleverDistrictId, (s, d) => d.LocalTimeZone)
-                .FirstOrDefault();
+            // If DbContext creation fails, use default
         }
 
         // Default to Eastern Standard Time if no timezone found (e.g., for Super Admins)
-        return timeZoneId ?? "Eastern Standard Time";
+        _cachedTimeZoneId = timeZoneId ?? "Eastern Standard Time";
+        return _cachedTimeZoneId;
     }
 
     private string GetLocalTimeFormatted(DateTime utcTime, string format)

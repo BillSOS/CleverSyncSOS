@@ -13,6 +13,7 @@ using CleverSyncSOS.Core.CleverApi;
 using CleverSyncSOS.Core.Configuration;
 using CleverSyncSOS.Core.Database.SchoolDb;
 using CleverSyncSOS.Core.Database.SessionDb;
+using CleverSyncSOS.Core.Services;
 using CleverSyncSOS.Core.Sync;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -181,6 +182,10 @@ public static class ServiceCollectionExtensions
         // Register SchoolDatabaseConnectionFactory for per-school databases
         // School connection strings are retrieved from Azure Key Vault via ICredentialStore
         services.AddSingleton<SchoolDatabaseConnectionFactory>();
+
+        // Register LocalTimeService for timezone-aware timestamp handling
+        // Converts UTC to local time based on district's LocalTimeZone setting
+        services.AddScoped<ILocalTimeService, LocalTimeService>();
 
         // Register SyncService for orchestration
         services.AddScoped<ISyncService, SyncService>();

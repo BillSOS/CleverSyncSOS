@@ -60,7 +60,7 @@
         <div class="d-flex justify-content-between align-items-center mb-4">
             <div class="d-flex align-items-center">
                 <img src="favicon.png" alt="CleverSync Logo" style="height: 2.5rem; margin-right: 1rem;" />
-                <h1 class="mb-0">Roster: @_section.Name</h1>
+                <h1 class="mb-0">Roster: @(_section.SectionName ?? _section.SectionNumber)</h1>
             </div>
             <button class="btn btn-secondary" @onclick="GoBack">
                 <i class="oi oi-arrow-left"></i> Back
@@ -74,21 +74,17 @@
             </div>
             <div class="card-body">
                 <div class="row">
-                    <div class="col-md-3">
+                    <div class="col-md-4">
                         <strong>Section Name:</strong><br />
-                        @_section.Name
+                        @(_section.SectionName ?? _section.SectionNumber)
                     </div>
-                    <div class="col-md-3">
-                        <strong>Course:</strong><br />
-                        @(_section.Course?.Name ?? "-")
-                    </div>
-                    <div class="col-md-3">
+                    <div class="col-md-4">
                         <strong>Period:</strong><br />
                         @(_section.Period ?? "-")
                     </div>
-                    <div class="col-md-3">
-                        <strong>Grade Level:</strong><br />
-                        @(_section.Grade ?? "-")
+                    <div class="col-md-4">
+                        <strong>Subject:</strong><br />
+                        @(_section.Subject ?? "-")
                     </div>
                 </div>
             </div>
@@ -159,7 +155,7 @@
                                         <td>
                                             <strong>@ts.Teacher.FirstName @ts.Teacher.LastName</strong>
                                         </td>
-                                        <td>@ts.Teacher.Email</td>
+                                        <td>@ts.Teacher.UserName</td>
                                         <td>
                                             @if (ts.IsPrimary)
                                             {
@@ -202,7 +198,7 @@
                             <thead>
                                 <tr>
                                     <th>Student Name</th>
-                                    <th>Email</th>
+                                    <th>Student Number</th>
                                     <th>Grade</th>
                                     <th>Enrollment Date</th>
                                 </tr>
@@ -214,8 +210,8 @@
                                         <td>
                                             <strong>@ss.Student.FirstName @ss.Student.LastName</strong>
                                         </td>
-                                        <td>@(ss.Student.Email ?? "-")</td>
-                                        <td>@(ss.Student.Grade ?? "-")</td>
+                                        <td>@(ss.Student.StudentNumber ?? "-")</td>
+                                        <td>@(ss.Student.Grade?.ToString() ?? "-")</td>
                                         <td class="text-muted small">
                                             @ss.CreatedAt.ToString("yyyy-MM-dd")
                                         </td>
@@ -348,7 +344,6 @@
             }
 
             _section = await _schoolDb.Sections
-                .Include(s => s.Course)
                 .Include(s => s.TeacherSections)
                     .ThenInclude(ts => ts.Teacher)
                 .Include(s => s.StudentSections)

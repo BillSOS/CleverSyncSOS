@@ -1,4 +1,5 @@
 using CleverSyncSOS.Core.Database.SchoolDb.Entities;
+
 using Microsoft.EntityFrameworkCore;
 
 namespace CleverSyncSOS.Core.Database.SchoolDb;
@@ -19,6 +20,8 @@ public class SchoolDbContext : DbContext
     public DbSet<Section> Sections { get; set; } = null!;
     public DbSet<TeacherSection> TeacherSections { get; set; } = null!;
     public DbSet<StudentSection> StudentSections { get; set; } = null!;
+    public DbSet<Workshop> Workshops { get; set; } = null!;
+    public DbSet<WorkshopSection> WorkshopSections { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -30,35 +33,42 @@ public class SchoolDbContext : DbContext
             entity.HasKey(e => e.StudentId);
             entity.HasIndex(e => e.CleverStudentId).IsUnique();
             entity.Property(e => e.CleverStudentId).IsRequired().HasMaxLength(50);
-            entity.Property(e => e.FirstName).IsRequired().HasMaxLength(100);
-            entity.Property(e => e.LastName).IsRequired().HasMaxLength(100);
-            entity.Property(e => e.Email).HasMaxLength(200);
-            entity.Property(e => e.Grade).HasMaxLength(20);
-            entity.Property(e => e.StudentNumber).HasMaxLength(50);
-            entity.Property(e => e.IsActive).IsRequired().HasDefaultValue(true);
-            entity.Property(e => e.CreatedAt).IsRequired();
-            entity.Property(e => e.UpdatedAt).IsRequired();
+            entity.Property(e => e.FirstName).IsRequired().HasMaxLength(32);
+            entity.Property(e => e.MiddleName).HasMaxLength(32);
+            entity.Property(e => e.LastName).IsRequired().HasMaxLength(32);
+            entity.Property(e => e.StateStudentId).IsRequired().HasMaxLength(32);
+            entity.Property(e => e.StudentNumber).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.GradeLevel).HasMaxLength(20);
+            entity.Property(e => e.BlendedLearningAssignment).HasMaxLength(255);
 
-            // Create index for active students
-            entity.HasIndex(e => e.IsActive);
+            // Create index for soft-deleted students (null = active)
+            entity.HasIndex(e => e.DeletedAt);
         });
 
         // Configure Teacher entity
         modelBuilder.Entity<Teacher>(entity =>
         {
             entity.HasKey(e => e.TeacherId);
-            entity.HasIndex(e => e.CleverTeacherId).IsUnique();
-            entity.Property(e => e.CleverTeacherId).IsRequired().HasMaxLength(50);
-            entity.Property(e => e.FirstName).IsRequired().HasMaxLength(100);
-            entity.Property(e => e.LastName).IsRequired().HasMaxLength(100);
-            entity.Property(e => e.Email).IsRequired().HasMaxLength(200);
-            entity.Property(e => e.Title).HasMaxLength(100);
-            entity.Property(e => e.IsActive).IsRequired().HasDefaultValue(true);
-            entity.Property(e => e.CreatedAt).IsRequired();
-            entity.Property(e => e.UpdatedAt).IsRequired();
+            entity.HasIndex(e => e.CleverTeacherId);
+            entity.HasIndex(e => e.StaffNumber).IsUnique();
+            entity.Property(e => e.CleverTeacherId).HasMaxLength(50);
+            entity.Property(e => e.FirstName).IsRequired().HasMaxLength(32);
+            entity.Property(e => e.LastName).IsRequired().HasMaxLength(32);
+            entity.Property(e => e.FullName).HasMaxLength(255);
+            entity.Property(e => e.UserName).HasMaxLength(255);
+            entity.Property(e => e.Password).HasMaxLength(255);
+            entity.Property(e => e.VirtualMeeting).HasMaxLength(256);
+            entity.Property(e => e.StaffNumber).IsRequired().HasMaxLength(32);
+            entity.Property(e => e.LegacyId).HasMaxLength(50);
+            entity.Property(e => e.TeacherNumber).HasMaxLength(50);
+            entity.Property(e => e.PriorityId).HasDefaultValue(2);
+            entity.Property(e => e.Administrator).HasDefaultValue(false);
+            entity.Property(e => e.IgnoreImport).HasDefaultValue(false);
+            entity.Property(e => e.AllStudentsWorkshops).HasDefaultValue(false);
+            entity.Property(e => e.NoWorkshops).HasDefaultValue(false);
 
-            // Create index for active teachers
-            entity.HasIndex(e => e.IsActive);
+            // Create index for soft-deleted teachers (null = active)
+            entity.HasIndex(e => e.DeletedAt);
         });
 
         // Configure Course entity
@@ -78,32 +88,22 @@ public class SchoolDbContext : DbContext
         });
 
         // Configure Section entity
+        // Note: Sections no longer have a FK to Courses - CleverCourseId is stored for reference only
+        // Courses are district-level in Clever and not synced to avoid irrelevant data from other schools
         modelBuilder.Entity<Section>(entity =>
         {
             entity.HasKey(e => e.SectionId);
             entity.HasIndex(e => e.CleverSectionId).IsUnique();
-            entity.HasIndex(e => e.CourseId);
-            entity.HasIndex(e => e.SchoolId);
-            entity.HasIndex(e => e.TermId);
+            entity.HasIndex(e => e.CleverCourseId);
             entity.HasIndex(e => e.Subject);
-            entity.HasIndex(e => e.Grade);
-            entity.HasIndex(e => e.IsActive);
+            entity.HasIndex(e => e.DeletedAt);
 
-            entity.Property(e => e.Name).IsRequired().HasMaxLength(500);
-            entity.Property(e => e.CleverSectionId).IsRequired().HasMaxLength(255);
-            entity.Property(e => e.Period).HasMaxLength(100);
-            entity.Property(e => e.Subject).HasMaxLength(100);
-            entity.Property(e => e.SubjectNormalized).HasMaxLength(100);
-            entity.Property(e => e.TermId).HasMaxLength(255);
-            entity.Property(e => e.TermName).HasMaxLength(200);
-            entity.Property(e => e.Grade).HasMaxLength(50);
-            entity.Property(e => e.IsActive).IsRequired().HasDefaultValue(true);
-
-            // Relationship: Section -> Course (required)
-            entity.HasOne(e => e.Course)
-                  .WithMany(c => c.Sections)
-                  .HasForeignKey(e => e.CourseId)
-                  .OnDelete(DeleteBehavior.Restrict); // Don't allow course deletion if sections exist
+            entity.Property(e => e.SectionNumber).IsRequired().HasMaxLength(32);
+            entity.Property(e => e.CleverSectionId).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.CleverCourseId).HasMaxLength(50);
+            entity.Property(e => e.SectionName).HasMaxLength(64);
+            entity.Property(e => e.Period).HasMaxLength(64);
+            entity.Property(e => e.Subject).HasMaxLength(64);
         });
 
         // Configure TeacherSection entity
@@ -147,6 +147,37 @@ public class SchoolDbContext : DbContext
                   .WithMany(s => s.StudentSections)
                   .HasForeignKey(e => e.SectionId)
                   .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Configure Workshop entity
+        modelBuilder.Entity<Workshop>(entity =>
+        {
+            entity.HasKey(e => e.WorkshopId);
+            entity.Property(e => e.WorkshopName).IsRequired().HasMaxLength(255);
+        });
+
+        // Configure WorkshopSection entity (Workshop_X_Section table)
+        modelBuilder.Entity<WorkshopSection>(entity =>
+        {
+            entity.ToTable("Workshop_X_Section");
+            entity.HasKey(e => e.WorkshopXSectionId);
+            entity.HasIndex(e => e.WorkshopId);
+            entity.HasIndex(e => e.SectionId);
+
+            entity.Property(e => e.KeepAssignments).HasDefaultValue(false);
+
+            // Relationship: WorkshopSection -> Workshop
+            entity.HasOne(e => e.Workshop)
+                  .WithMany(w => w.WorkshopSections)
+                  .HasForeignKey(e => e.WorkshopId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            // Relationship: WorkshopSection -> Section
+            // RESTRICT delete - sync should alert if a linked section would be deleted
+            entity.HasOne(e => e.Section)
+                  .WithMany()
+                  .HasForeignKey(e => e.SectionId)
+                  .OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

@@ -1,69 +1,79 @@
+using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+
 namespace CleverSyncSOS.Core.Database.SchoolDb.Entities;
 
 /// <summary>
 /// Represents a student record synced from Clever API.
+/// Maps to [dbo].[Student] table in SchoolDb.
 /// </summary>
+[Table("Student")]
 public class Student
 {
-    /// <summary>
-    /// Unique identifier.
-    /// </summary>
+    [Key]
     public int StudentId { get; set; }
 
-    /// <summary>
-    /// Clever's student identifier.
-    /// </summary>
-    public string CleverStudentId { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Student's first name.
-    /// </summary>
+    [Required]
+    [MaxLength(32)]
     public string FirstName { get; set; } = string.Empty;
 
-    /// <summary>
-    /// Student's last name.
-    /// </summary>
+    [MaxLength(32)]
+    public string? MiddleName { get; set; }
+
+    [Required]
+    [MaxLength(32)]
     public string LastName { get; set; } = string.Empty;
 
-    /// <summary>
-    /// Student's email address.
-    /// </summary>
-    public string? Email { get; set; }
+    [MaxLength(255)]
+    public string? BlendedLearningAssignment { get; set; }
+
+    public int? Grade { get; set; }
+
+    [Required]
+    [MaxLength(32)]
+    public string StateStudentId { get; set; } = string.Empty;
+
+    public bool KeepWithoutSchedule { get; set; }
+
+    public bool VirtualStudent { get; set; }
+
+    public bool NoOffCampus { get; set; }
+
+    public bool? TeacherCloses { get; set; }
+
+    public int? DailyHallPasses { get; set; }
+
+    public int? WeeklyHallPasses { get; set; }
+
+    [Required]
+    [MaxLength(50)]
+    public string CleverStudentId { get; set; } = string.Empty;
+
+    [Required]
+    [MaxLength(50)]
+    public string StudentNumber { get; set; } = string.Empty;
+
+    [MaxLength(20)]
+    public string GradeLevel { get; set; } = "0";
 
     /// <summary>
-    /// Student's grade level.
+    /// When the record was first created in our database
     /// </summary>
-    public string? Grade { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>
-    /// School's local student number.
+    /// When the record's data last changed
     /// </summary>
-    public string? StudentNumber { get; set; }
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>
-    /// Clever's last_modified timestamp.
+    /// When soft-deleted (null = active)
     /// </summary>
-    public DateTime? LastModifiedInClever { get; set; }
+    public DateTime? DeletedAt { get; set; }
 
     /// <summary>
-    /// Whether the student is currently active in the school.
-    /// Set to false when student is not present in Clever during full sync (graduated, transferred, etc.).
+    /// When we last saw this record in Clever (for orphan detection).
+    /// Uses local time based on the district's timezone setting.
     /// </summary>
-    public bool IsActive { get; set; } = true;
-
-    /// <summary>
-    /// Timestamp when student was marked as inactive.
-    /// Set during full sync when student is no longer in Clever.
-    /// </summary>
-    public DateTime? DeactivatedAt { get; set; }
-
-    /// <summary>
-    /// Timestamp of record creation.
-    /// </summary>
-    public DateTime CreatedAt { get; set; }
-
-    /// <summary>
-    /// Timestamp of last update.
-    /// </summary>
-    public DateTime UpdatedAt { get; set; }
+    public DateTime LastSyncedAt { get; set; } = DateTime.UtcNow;
 }

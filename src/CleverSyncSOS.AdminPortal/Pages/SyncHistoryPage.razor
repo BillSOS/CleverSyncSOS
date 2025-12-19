@@ -182,6 +182,33 @@
                             <tr>
                                 <td colspan="10">
                                     <div class="p-3 bg-light">
+                                        @* Show sync type indicator *@
+                                        <div class="mb-3">
+                                            <strong>Sync Method:</strong>
+                                            @if (sync.SyncType == SyncType.Incremental && !string.IsNullOrEmpty(sync.LastEventId))
+                                            {
+                                                <span class="badge bg-success ms-2">Events-based (Incremental)</span>
+                                                <span class="text-muted small ms-2">Last Event ID: @sync.LastEventId</span>
+                                            }
+                                            else if (sync.SyncType == SyncType.Full)
+                                            {
+                                                <span class="badge bg-primary ms-2">Full Sync</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-secondary ms-2">@sync.SyncType</span>
+                                            }
+                                        </div>
+
+                                        @* Show events summary if available *@
+                                        @if (!string.IsNullOrEmpty(sync.EventsSummaryJson))
+                                        {
+                                            var eventsSummary = GetEventsSummaryDisplay(sync.EventsSummaryJson);
+                                            <div class="alert alert-success mb-3" role="alert">
+                                                <strong>Events Processed:</strong> @eventsSummary
+                                            </div>
+                                        }
+
                                         @if (_loadingDetails)
                                         {
                                             <div class="text-center">
@@ -576,5 +603,54 @@
         {
             return jsonValues;
         }
+    }
+
+    private string GetEventsSummaryDisplay(string? eventsSummaryJson)
+    {
+        if (string.IsNullOrEmpty(eventsSummaryJson))
+            return "No events data";
+
+        try
+        {
+            var summary = JsonSerializer.Deserialize<EventsSummaryDto>(eventsSummaryJson);
+            if (summary == null)
+                return "No events data";
+
+            var parts = new List<string>();
+
+            if (summary.StudentCreated > 0) parts.Add($"{summary.StudentCreated} student created");
+            if (summary.StudentUpdated > 0) parts.Add($"{summary.StudentUpdated} student updated");
+            if (summary.StudentDeleted > 0) parts.Add($"{summary.StudentDeleted} student deleted");
+            if (summary.TeacherCreated > 0) parts.Add($"{summary.TeacherCreated} teacher created");
+            if (summary.TeacherUpdated > 0) parts.Add($"{summary.TeacherUpdated} teacher updated");
+            if (summary.TeacherDeleted > 0) parts.Add($"{summary.TeacherDeleted} teacher deleted");
+            if (summary.SectionCreated > 0) parts.Add($"{summary.SectionCreated} section created");
+            if (summary.SectionUpdated > 0) parts.Add($"{summary.SectionUpdated} section updated");
+            if (summary.SectionDeleted > 0) parts.Add($"{summary.SectionDeleted} section deleted");
+            if (summary.EventsSkipped > 0) parts.Add($"{summary.EventsSkipped} skipped");
+
+            if (parts.Count == 0) return "No events processed";
+            return $"{summary.TotalEventsProcessed} events: {string.Join(", ", parts)}";
+        }
+        catch
+        {
+            return eventsSummaryJson;
+        }
+    }
+
+    // DTO for deserializing EventsSummary from JSON
+    private class EventsSummaryDto
+    {
+        public int TotalEventsProcessed { get; set; }
+        public int StudentCreated { get; set; }
+        public int StudentUpdated { get; set; }
+        public int StudentDeleted { get; set; }
+        public int TeacherCreated { get; set; }
+        public int TeacherUpdated { get; set; }
+        public int TeacherDeleted { get; set; }
+        public int SectionCreated { get; set; }
+        public int SectionUpdated { get; set; }
+        public int SectionDeleted { get; set; }
+        public int EventsSkipped { get; set; }
     }
 }

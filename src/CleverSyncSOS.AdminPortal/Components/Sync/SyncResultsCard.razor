@@ -27,24 +27,96 @@
                 <div class="col-md-6">
                     @if (Result.Scope == "school")
                     {
-                        <p>
-                            <strong>Students:</strong>
-                            @Result.StudentsProcessed processed,
-                            @Result.StudentsFailed failed
-                            @if (Result.StudentsDeleted > 0)
-                            {
-                                <text>, @Result.StudentsDeleted deleted</text>
-                            }
-                        </p>
-                        <p>
-                            <strong>Teachers:</strong>
-                            @Result.TeachersProcessed processed,
-                            @Result.TeachersFailed failed
-                            @if (Result.TeachersDeleted > 0)
-                            {
-                                <text>, @Result.TeachersDeleted deleted</text>
-                            }
-                        </p>
+                        @if (Result.IsIncrementalSync)
+                        {
+                            @* Incremental sync shows Created/Updated/Deleted breakdown *@
+                            <p>
+                                <strong>Events:</strong> @Result.EventsProcessed processed
+                                @if (Result.EventsSkipped > 0)
+                                {
+                                    <span class="text-muted">(@Result.EventsSkipped skipped)</span>
+                                }
+                            </p>
+                            <p>
+                                <strong>Students:</strong>
+                                @if (Result.StudentsCreated > 0)
+                                {
+                                    <span class="text-success">@Result.StudentsCreated created</span><text>, </text>
+                                }
+                                @if (Result.StudentsUpdated > 0)
+                                {
+                                    <span class="text-primary">@Result.StudentsUpdated updated</span><text>, </text>
+                                }
+                                @if (Result.StudentsDeleted > 0)
+                                {
+                                    <span class="text-warning">@Result.StudentsDeleted deleted</span>
+                                }
+                                @if (Result.StudentsCreated == 0 && Result.StudentsUpdated == 0 && Result.StudentsDeleted == 0)
+                                {
+                                    <span class="text-muted">no changes</span>
+                                }
+                            </p>
+                            <p>
+                                <strong>Teachers:</strong>
+                                @if (Result.TeachersCreated > 0)
+                                {
+                                    <span class="text-success">@Result.TeachersCreated created</span><text>, </text>
+                                }
+                                @if (Result.TeachersUpdated > 0)
+                                {
+                                    <span class="text-primary">@Result.TeachersUpdated updated</span><text>, </text>
+                                }
+                                @if (Result.TeachersDeleted > 0)
+                                {
+                                    <span class="text-warning">@Result.TeachersDeleted deleted</span>
+                                }
+                                @if (Result.TeachersCreated == 0 && Result.TeachersUpdated == 0 && Result.TeachersDeleted == 0)
+                                {
+                                    <span class="text-muted">no changes</span>
+                                }
+                            </p>
+                            <p>
+                                <strong>Sections:</strong>
+                                @if (Result.SectionsCreated > 0)
+                                {
+                                    <span class="text-success">@Result.SectionsCreated created</span><text>, </text>
+                                }
+                                @if (Result.SectionsUpdated > 0)
+                                {
+                                    <span class="text-primary">@Result.SectionsUpdated updated</span><text>, </text>
+                                }
+                                @if (Result.SectionsDeleted > 0)
+                                {
+                                    <span class="text-warning">@Result.SectionsDeleted deleted</span>
+                                }
+                                @if (Result.SectionsCreated == 0 && Result.SectionsUpdated == 0 && Result.SectionsDeleted == 0)
+                                {
+                                    <span class="text-muted">no changes</span>
+                                }
+                            </p>
+                        }
+                        else
+                        {
+                            @* Full sync shows processed/failed counts *@
+                            <p>
+                                <strong>Students:</strong>
+                                @Result.StudentsProcessed processed,
+                                @Result.StudentsFailed failed
+                                @if (Result.StudentsDeleted > 0)
+                                {
+                                    <text>, @Result.StudentsDeleted deleted</text>
+                                }
+                            </p>
+                            <p>
+                                <strong>Teachers:</strong>
+                                @Result.TeachersProcessed processed,
+                                @Result.TeachersFailed failed
+                                @if (Result.TeachersDeleted > 0)
+                                {
+                                    <text>, @Result.TeachersDeleted deleted</text>
+                                }
+                            </p>
+                        }
                     }
                     else
                     {

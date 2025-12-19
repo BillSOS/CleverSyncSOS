@@ -118,6 +118,14 @@ public class SyncResult
     public int SectionsProcessed { get; set; } // Total sections examined
     public int SectionsUpdated { get; set; } // Sections that actually changed
     public int SectionsFailed { get; set; }
+    public int SectionsSkippedWorkshopLinked { get; set; } // Sections skipped because linked to workshops
+
+    // Warning stats
+    public int WarningsGenerated { get; set; } // Total warnings generated (e.g., workshop-linked sections modified)
+    public List<SyncWarningInfo> Warnings { get; set; } = new(); // Details of warnings
+
+    // Events processing summary (for events-based sync)
+    public EventsSummary? EventsSummary { get; set; }
 
     public DateTime StartTime { get; set; }
     public DateTime EndTime { get; set; }
@@ -138,5 +146,119 @@ public class SyncProgress
     public int TeachersProcessed { get; set; } // Total teachers examined
     public int TeachersUpdated { get; set; } // Teachers that actually changed
     public int TeachersFailed { get; set; }
+    public int CoursesProcessed { get; set; } // Total courses examined
+    public int CoursesUpdated { get; set; } // Courses that actually changed
+    public int CoursesFailed { get; set; }
+    public int SectionsProcessed { get; set; } // Total sections examined
+    public int SectionsUpdated { get; set; } // Sections that actually changed
+    public int SectionsFailed { get; set; }
+    public int WarningsGenerated { get; set; } // Total warnings generated
     public TimeSpan? EstimatedTimeRemaining { get; set; }
+
+    // Incremental sync breakdown (Created/Updated/Deleted)
+    public int StudentsCreated { get; set; }
+    public int StudentsDeleted { get; set; }
+    public int TeachersCreated { get; set; }
+    public int TeachersDeleted { get; set; }
+    public int SectionsCreated { get; set; }
+    public int SectionsDeleted { get; set; }
+    public int EventsProcessed { get; set; }
+    public int EventsSkipped { get; set; }
+    public bool IsIncrementalSync { get; set; }
+}
+
+/// <summary>
+/// Information about a sync warning for display purposes.
+/// </summary>
+public class SyncWarningInfo
+{
+    public string WarningType { get; set; } = string.Empty;
+    public string EntityType { get; set; } = string.Empty;
+    public int EntityId { get; set; }
+    public string EntityName { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
+    public List<string> AffectedWorkshopNames { get; set; } = new();
+}
+
+/// <summary>
+/// Summary of events processed during an events-based sync.
+/// </summary>
+public class EventsSummary
+{
+    /// <summary>
+    /// Total number of events processed.
+    /// </summary>
+    public int TotalEventsProcessed { get; set; }
+
+    /// <summary>
+    /// Number of student created events.
+    /// </summary>
+    public int StudentCreated { get; set; }
+
+    /// <summary>
+    /// Number of student updated events.
+    /// </summary>
+    public int StudentUpdated { get; set; }
+
+    /// <summary>
+    /// Number of student deleted events.
+    /// </summary>
+    public int StudentDeleted { get; set; }
+
+    /// <summary>
+    /// Number of teacher created events.
+    /// </summary>
+    public int TeacherCreated { get; set; }
+
+    /// <summary>
+    /// Number of teacher updated events.
+    /// </summary>
+    public int TeacherUpdated { get; set; }
+
+    /// <summary>
+    /// Number of teacher deleted events.
+    /// </summary>
+    public int TeacherDeleted { get; set; }
+
+    /// <summary>
+    /// Number of section created events.
+    /// </summary>
+    public int SectionCreated { get; set; }
+
+    /// <summary>
+    /// Number of section updated events.
+    /// </summary>
+    public int SectionUpdated { get; set; }
+
+    /// <summary>
+    /// Number of section deleted events.
+    /// </summary>
+    public int SectionDeleted { get; set; }
+
+    /// <summary>
+    /// Number of events skipped (e.g., unsupported types).
+    /// </summary>
+    public int EventsSkipped { get; set; }
+
+    /// <summary>
+    /// Returns a human-readable summary of events processed.
+    /// </summary>
+    public string ToDisplayString()
+    {
+        var parts = new List<string>();
+
+        if (StudentCreated > 0) parts.Add($"{StudentCreated} student created");
+        if (StudentUpdated > 0) parts.Add($"{StudentUpdated} student updated");
+        if (StudentDeleted > 0) parts.Add($"{StudentDeleted} student deleted");
+        if (TeacherCreated > 0) parts.Add($"{TeacherCreated} teacher created");
+        if (TeacherUpdated > 0) parts.Add($"{TeacherUpdated} teacher updated");
+        if (TeacherDeleted > 0) parts.Add($"{TeacherDeleted} teacher deleted");
+        if (SectionCreated > 0) parts.Add($"{SectionCreated} section created");
+        if (SectionUpdated > 0) parts.Add($"{SectionUpdated} section updated");
+        if (SectionDeleted > 0) parts.Add($"{SectionDeleted} section deleted");
+        if (EventsSkipped > 0) parts.Add($"{EventsSkipped} skipped");
+
+        if (parts.Count == 0) return "No events processed";
+        return $"Processed {TotalEventsProcessed} events: {string.Join(", ", parts)}";
+    }
 }

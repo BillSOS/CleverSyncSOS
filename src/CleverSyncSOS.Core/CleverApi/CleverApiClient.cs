@@ -140,7 +140,9 @@ public class CleverApiClient : ICleverApiClient
                     _logger.LogWarning("lastModified filtering requested but not supported by Clever API. Fetching all records.");
                 }
 
-                url = $"{endpoint}?{string.Join("&", queryParams)}";
+                // Handle endpoints that may already have query parameters
+                var separator = endpoint.Contains("?") ? "&" : "?";
+                url = $"{endpoint}{separator}{string.Join("&", queryParams)}";
             }
             else
             {
@@ -212,8 +214,17 @@ public class CleverApiClient : ICleverApiClient
         var url = $"events?{string.Join("&", queryParams)}";
         var response = await FetchWithRetryAsync<CleverEventsResponse>(url, cancellationToken);
 
-        _logger.LogInformation("Retrieved {Count} events", response.Data?.Length ?? 0);
-        return response.Data ?? Array.Empty<CleverEvent>();
+        // Unwrap events from the wrapper objects (Clever Events API wraps each event in { "data": {...} })
+        var events = response.Data?.Select(w => w.Event).ToArray() ?? Array.Empty<CleverEvent>();
+        _logger.LogInformation("Retrieved {Count} events", events.Length);
+
+        if (events.Length > 0)
+        {
+            _logger.LogDebug("First event - Id: {Id}, Type: {Type}, Created: {Created}",
+                events[0].Id, events[0].Type, events[0].Created);
+        }
+
+        return events;
     }
 
     /// <inheritdoc />
@@ -223,10 +234,12 @@ public class CleverApiClient : ICleverApiClient
     {
         _logger.LogInformation("Fetching courses for school {SchoolId}", schoolId);
 
-        var endpoint = $"schools/{schoolId}/courses";
+        // Clever API v3.0: Courses are at district level, not school level
+        // Use /courses endpoint - courses are NOT wrapped in inner data objects
+        var endpoint = "courses";
         var courses = await GetPagedDataAsync<CleverCourse>(endpoint, null, null, cancellationToken);
 
-        _logger.LogInformation("Retrieved {Count} courses for school {SchoolId}", courses.Length, schoolId);
+        _logger.LogInformation("Retrieved {Count} courses (district-level)", courses.Length);
         return courses;
     }
 
@@ -237,11 +250,14 @@ public class CleverApiClient : ICleverApiClient
     {
         _logger.LogInformation("Fetching sections for school {SchoolId}", schoolId);
 
+        // Clever API v3.0: Use /schools/{id}/sections nested endpoint
+        // This returns all sections whose primary school is the specified ID
         var endpoint = $"schools/{schoolId}/sections";
-        var sections = await GetPagedDataAsync<CleverSection>(endpoint, null, null, cancellationToken);
+        var sections = await GetPagedDataAsync<CleverDataWrapper<CleverSection>>(endpoint, null, null, cancellationToken);
 
-        _logger.LogInformation("Retrieved {Count} sections for school {SchoolId}", sections.Length, schoolId);
-        return sections;
+        var result = sections.Select(w => w.Data).ToArray();
+        _logger.LogInformation("Retrieved {Count} sections for school {SchoolId}", result.Length, schoolId);
+        return result;
     }
 
     /// <inheritdoc />
@@ -254,7 +270,7 @@ public class CleverApiClient : ICleverApiClient
         var url = "events?limit=1";
         var response = await FetchWithRetryAsync<CleverEventsResponse>(url, cancellationToken);
 
-        var latestEventId = response.Data?.FirstOrDefault()?.Id;
+        var latestEventId = response.Data?.FirstOrDefault()?.Event.Id;
         _logger.LogInformation("Latest event ID: {EventId}", latestEventId ?? "null");
 
         return latestEventId;

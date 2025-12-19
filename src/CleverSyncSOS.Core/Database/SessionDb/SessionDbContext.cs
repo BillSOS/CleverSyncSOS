@@ -19,6 +19,8 @@ public class SessionDbContext : DbContext
     public DbSet<SyncChangeDetail> SyncChangeDetails { get; set; } = null!;
     public DbSet<User> Users { get; set; } = null!;
     public DbSet<AuditLog> AuditLogs { get; set; } = null!;
+    public DbSet<EventsLog> EventsLogs { get; set; } = null!;
+    public DbSet<SyncWarning> SyncWarnings { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -164,6 +166,47 @@ public class SessionDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(a => a.UserId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+        // Configure EventsLog entity
+        modelBuilder.Entity<EventsLog>(entity =>
+        {
+            entity.HasKey(e => e.EventsLogId);
+            entity.HasIndex(e => e.CheckedAt);
+            entity.Property(e => e.CheckedAt).IsRequired();
+            entity.Property(e => e.CheckedBy).HasMaxLength(256);
+            entity.Property(e => e.ApiAccessible).IsRequired();
+            entity.Property(e => e.EventCount).HasDefaultValue(0);
+            entity.Property(e => e.CreatedCount).HasDefaultValue(0);
+            entity.Property(e => e.UpdatedCount).HasDefaultValue(0);
+            entity.Property(e => e.DeletedCount).HasDefaultValue(0);
+            entity.Property(e => e.LatestEventId).HasMaxLength(100);
+            entity.Property(e => e.ObjectTypeSummary).HasMaxLength(500);
+            entity.Property(e => e.ErrorMessage).HasMaxLength(2000);
+        });
+
+        // Configure SyncWarning entity
+        modelBuilder.Entity<SyncWarning>(entity =>
+        {
+            entity.HasKey(e => e.SyncWarningId);
+            entity.HasIndex(e => e.SyncId);
+            entity.HasIndex(e => e.WarningType);
+            entity.HasIndex(e => e.IsAcknowledged);
+            entity.HasIndex(e => e.CreatedAt);
+
+            entity.Property(e => e.WarningType).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.EntityType).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.CleverEntityId).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.EntityName).IsRequired().HasMaxLength(500);
+            entity.Property(e => e.Message).IsRequired().HasMaxLength(2000);
+            entity.Property(e => e.AffectedWorkshops).HasMaxLength(4000);
+            entity.Property(e => e.AcknowledgedBy).HasMaxLength(256);
+            entity.Property(e => e.CreatedAt).IsRequired();
+
+            // Configure relationship with SyncHistory
+            entity.HasOne(w => w.SyncHistory)
+                .WithMany()
+                .HasForeignKey(w => w.SyncId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

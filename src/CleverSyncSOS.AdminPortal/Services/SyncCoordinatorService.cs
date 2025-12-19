@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using CleverSyncSOS.AdminPortal.Hubs;
 using CleverSyncSOS.AdminPortal.Models.ViewModels;
 using CleverSyncSOS.Core.Database.SessionDb;
@@ -20,26 +19,27 @@ public class SyncCoordinatorService : ISyncCoordinatorService
     private readonly IAuditLogService _auditLogService;
     private readonly ILogger<SyncCoordinatorService> _logger;
     private readonly SessionDbContext _dbContext;
-    private readonly ConcurrentDictionary<string, SyncProgressUpdate> _activeSyncs;
+    private readonly ActiveSyncTracker _activeSyncTracker;
 
     public SyncCoordinatorService(
         ISyncService syncService,
         IHubContext<SyncProgressHub> hubContext,
         IAuditLogService auditLogService,
         ILogger<SyncCoordinatorService> logger,
-        SessionDbContext dbContext)
+        SessionDbContext dbContext,
+        ActiveSyncTracker activeSyncTracker)
     {
         _syncService = syncService;
         _hubContext = hubContext;
         _auditLogService = auditLogService;
         _logger = logger;
         _dbContext = dbContext;
-        _activeSyncs = new ConcurrentDictionary<string, SyncProgressUpdate>();
+        _activeSyncTracker = activeSyncTracker;
     }
 
     public Task<bool> IsSyncInProgressAsync(string scope)
     {
-        return Task.FromResult(_activeSyncs.ContainsKey(scope));
+        return Task.FromResult(_activeSyncTracker.ContainsKey(scope));
     }
 
     public async Task<SyncResultViewModel> StartSyncAsync(
@@ -49,7 +49,7 @@ public class SyncCoordinatorService : ISyncCoordinatorService
         string connectionId)
     {
         // Check for concurrent sync
-        if (_activeSyncs.ContainsKey(scope))
+        if (_activeSyncTracker.ContainsKey(scope))
         {
             throw new InvalidOperationException($"Sync already in progress for scope: {scope}");
         }
@@ -58,11 +58,12 @@ public class SyncCoordinatorService : ISyncCoordinatorService
         var progress = new SyncProgressUpdate
         {
             SyncId = Guid.NewGuid().ToString(),
+            Scope = scope,
             PercentComplete = 0,
             CurrentOperation = "Initializing sync...",
             StartTime = DateTime.UtcNow
         };
-        _activeSyncs.TryAdd(scope, progress);
+        _activeSyncTracker.TryAdd(scope, progress);
 
         // Audit log: Sync started
         await _auditLogService.LogEventAsync("TriggerSync", true, userId, null, scope,
@@ -89,7 +90,24 @@ public class SyncCoordinatorService : ISyncCoordinatorService
                 progress.TeachersProcessed = p.TeachersProcessed;
                 progress.TeachersUpdated = p.TeachersUpdated;
                 progress.TeachersFailed = p.TeachersFailed;
+                progress.CoursesProcessed = p.CoursesProcessed;
+                progress.CoursesUpdated = p.CoursesUpdated;
+                progress.CoursesFailed = p.CoursesFailed;
+                progress.SectionsProcessed = p.SectionsProcessed;
+                progress.SectionsUpdated = p.SectionsUpdated;
+                progress.SectionsFailed = p.SectionsFailed;
                 progress.EstimatedTimeRemaining = p.EstimatedTimeRemaining;
+
+                // Incremental sync breakdown
+                progress.IsIncrementalSync = p.IsIncrementalSync;
+                progress.StudentsCreated = p.StudentsCreated;
+                progress.StudentsDeleted = p.StudentsDeleted;
+                progress.TeachersCreated = p.TeachersCreated;
+                progress.TeachersDeleted = p.TeachersDeleted;
+                progress.SectionsCreated = p.SectionsCreated;
+                progress.SectionsDeleted = p.SectionsDeleted;
+                progress.EventsProcessed = p.EventsProcessed;
+                progress.EventsSkipped = p.EventsSkipped;
 
                 // Broadcast progress update synchronously to ensure delivery
                 Task.Run(async () =>
@@ -187,25 +205,30 @@ public class SyncCoordinatorService : ISyncCoordinatorService
         finally
         {
             // Remove from active syncs
-            _activeSyncs.TryRemove(scope, out _);
+            _activeSyncTracker.TryRemove(scope);
         }
     }
 
     public Task<SyncProgressUpdate?> GetCurrentProgressAsync(string scope)
     {
-        _activeSyncs.TryGetValue(scope, out var progress);
+        _activeSyncTracker.TryGetValue(scope, out var progress);
         return Task.FromResult(progress);
+    }
+
+    public Task<IReadOnlyDictionary<string, SyncProgressUpdate>> GetAllActiveSyncsAsync()
+    {
+        return Task.FromResult(_activeSyncTracker.GetAllActiveSyncs());
     }
 
     private async Task BroadcastProgressAsync(string scope, SyncProgressUpdate progress)
     {
-        _activeSyncs[scope] = progress;
+        _activeSyncTracker.UpdateProgress(scope, progress);
         await _hubContext.Clients.Group($"sync-{scope}").SendAsync("ReceiveProgress", progress);
     }
 
     private SyncResultViewModel MapSchoolResult(SyncResult syncResult, string scope, SyncMode syncMode)
     {
-        return new SyncResultViewModel
+        var result = new SyncResultViewModel
         {
             Success = syncResult.Success,
             Scope = "school",
@@ -221,6 +244,25 @@ public class SyncCoordinatorService : ISyncCoordinatorService
             TeachersDeleted = syncResult.TeachersDeleted,
             ErrorMessage = syncResult.ErrorMessage
         };
+
+        // Map EventsSummary for incremental sync results
+        if (syncResult.EventsSummary != null)
+        {
+            result.IsIncrementalSync = true;
+            result.StudentsCreated = syncResult.EventsSummary.StudentCreated;
+            result.StudentsUpdated = syncResult.EventsSummary.StudentUpdated;
+            result.StudentsDeleted = syncResult.EventsSummary.StudentDeleted;
+            result.TeachersCreated = syncResult.EventsSummary.TeacherCreated;
+            result.TeachersUpdated = syncResult.EventsSummary.TeacherUpdated;
+            result.TeachersDeleted = syncResult.EventsSummary.TeacherDeleted;
+            result.SectionsCreated = syncResult.EventsSummary.SectionCreated;
+            result.SectionsUpdated = syncResult.EventsSummary.SectionUpdated;
+            result.SectionsDeleted = syncResult.EventsSummary.SectionDeleted;
+            result.EventsProcessed = syncResult.EventsSummary.TotalEventsProcessed;
+            result.EventsSkipped = syncResult.EventsSummary.EventsSkipped;
+        }
+
+        return result;
     }
 
     private SyncResultViewModel MapDistrictSummary(SyncSummary summary, string scope, SyncMode syncMode)

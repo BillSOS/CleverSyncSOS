@@ -4,6 +4,7 @@ using CleverSyncSOS.Core.Database.SessionDb;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CleverSyncSOS.Core.Database.SessionDb.Migrations
 {
     [DbContext(typeof(SessionDbContext))]
-    partial class SessionDbContextModelSnapshot : ModelSnapshot
+    [Migration("20251210161428_AddEventsLog_SessionDb")]
+    partial class AddEventsLog_SessionDb
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -313,9 +316,6 @@ namespace CleverSyncSOS.Core.Database.SessionDb.Migrations
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<string>("EventsSummaryJson")
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<string>("LastEventId")
                         .HasColumnType("nvarchar(max)");
 
@@ -359,78 +359,6 @@ namespace CleverSyncSOS.Core.Database.SessionDb.Migrations
                     b.HasIndex("SchoolId", "EntityType", "SyncEndTime");
 
                     b.ToTable("SyncHistory");
-                });
-
-            modelBuilder.Entity("CleverSyncSOS.Core.Database.SessionDb.Entities.SyncWarning", b =>
-                {
-                    b.Property<int>("SyncWarningId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("SyncWarningId"));
-
-                    b.Property<DateTime?>("AcknowledgedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("AcknowledgedBy")
-                        .HasMaxLength(256)
-                        .HasColumnType("nvarchar(256)");
-
-                    b.Property<int>("AffectedWorkshopCount")
-                        .HasColumnType("int");
-
-                    b.Property<string>("AffectedWorkshops")
-                        .HasMaxLength(4000)
-                        .HasColumnType("nvarchar(4000)");
-
-                    b.Property<string>("CleverEntityId")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("EntityId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("EntityName")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<string>("EntityType")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<bool>("IsAcknowledged")
-                        .HasColumnType("bit");
-
-                    b.Property<string>("Message")
-                        .IsRequired()
-                        .HasMaxLength(2000)
-                        .HasColumnType("nvarchar(2000)");
-
-                    b.Property<int>("SyncId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("WarningType")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.HasKey("SyncWarningId");
-
-                    b.HasIndex("CreatedAt");
-
-                    b.HasIndex("IsAcknowledged");
-
-                    b.HasIndex("SyncId");
-
-                    b.HasIndex("WarningType");
-
-                    b.ToTable("SyncWarnings");
                 });
 
             modelBuilder.Entity("CleverSyncSOS.Core.Database.SessionDb.Entities.User", b =>
@@ -550,17 +478,6 @@ namespace CleverSyncSOS.Core.Database.SessionDb.Migrations
                         .IsRequired();
 
                     b.Navigation("School");
-                });
-
-            modelBuilder.Entity("CleverSyncSOS.Core.Database.SessionDb.Entities.SyncWarning", b =>
-                {
-                    b.HasOne("CleverSyncSOS.Core.Database.SessionDb.Entities.SyncHistory", "SyncHistory")
-                        .WithMany()
-                        .HasForeignKey("SyncId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("SyncHistory");
                 });
 
             modelBuilder.Entity("CleverSyncSOS.Core.Database.SessionDb.Entities.User", b =>

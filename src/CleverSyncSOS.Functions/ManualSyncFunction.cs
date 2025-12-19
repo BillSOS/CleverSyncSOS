@@ -135,11 +135,19 @@ public class ManualSyncFunction
                 statistics = new
                 {
                     studentsProcessed = result.StudentsProcessed,
+                    studentsUpdated = result.StudentsUpdated,
                     studentsFailed = result.StudentsFailed,
                     studentsDeleted = result.StudentsDeleted,
                     teachersProcessed = result.TeachersProcessed,
+                    teachersUpdated = result.TeachersUpdated,
                     teachersFailed = result.TeachersFailed,
-                    teachersDeleted = result.TeachersDeleted
+                    teachersDeleted = result.TeachersDeleted,
+                    coursesProcessed = result.CoursesProcessed,
+                    coursesUpdated = result.CoursesUpdated,
+                    coursesFailed = result.CoursesFailed,
+                    sectionsProcessed = result.SectionsProcessed,
+                    sectionsUpdated = result.SectionsUpdated,
+                    sectionsFailed = result.SectionsFailed
                 },
                 timestamp = DateTime.UtcNow
             });
@@ -206,7 +214,13 @@ public class ManualSyncFunction
                 success = s.Success,
                 syncType = s.SyncType.ToString(),
                 studentsProcessed = s.StudentsProcessed,
+                studentsUpdated = s.StudentsUpdated,
                 teachersProcessed = s.TeachersProcessed,
+                teachersUpdated = s.TeachersUpdated,
+                coursesProcessed = s.CoursesProcessed,
+                coursesUpdated = s.CoursesUpdated,
+                sectionsProcessed = s.SectionsProcessed,
+                sectionsUpdated = s.SectionsUpdated,
                 error = s.ErrorMessage
             }),
             timestamp = DateTime.UtcNow

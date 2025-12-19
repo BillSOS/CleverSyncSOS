@@ -75,6 +75,12 @@ public class SyncHistory
     public string? LastEventId { get; set; }
 
     /// <summary>
+    /// JSON summary of events processed during events-based sync.
+    /// Contains breakdown by event type (e.g., "2 student updates, 3 section deletes").
+    /// </summary>
+    public string? EventsSummaryJson { get; set; }
+
+    /// <summary>
     /// Navigation property to school.
     /// </summary>
     public School? School { get; set; }

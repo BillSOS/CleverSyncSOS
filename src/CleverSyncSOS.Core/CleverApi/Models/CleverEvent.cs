@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace CleverSyncSOS.Core.CleverApi.Models;
@@ -17,7 +18,9 @@ public class CleverEvent
     public string Id { get; set; } = string.Empty;
 
     /// <summary>
-    /// Event type: "created", "updated", or "deleted"
+    /// Event type in format "object.action" (e.g., "users.created", "sections.updated", "courses.deleted")
+    /// The object part indicates the type (users, sections, courses, terms, etc.)
+    /// The action part indicates what happened (created, updated, deleted)
     /// </summary>
     [JsonPropertyName("type")]
     public string Type { get; set; } = string.Empty;
@@ -35,17 +38,28 @@ public class CleverEvent
     /// Use event ID for ordering, not this timestamp.
     /// </summary>
     [JsonPropertyName("created")]
-    public DateTime Created { get; set; }
+    public DateTime? Created { get; set; }
 
     /// <summary>
     /// URI links for the event (self, data references, etc.)
     /// </summary>
     [JsonPropertyName("links")]
     public CleverLink[]? Links { get; set; }
+
+    /// <summary>
+    /// Gets the object type from the event type (e.g., "users" from "users.created")
+    /// </summary>
+    public string ObjectType => Type.Contains('.') ? Type.Split('.')[0] : Type;
+
+    /// <summary>
+    /// Gets the action type from the event type (e.g., "created" from "users.created")
+    /// </summary>
+    public string ActionType => Type.Contains('.') ? Type.Split('.')[1] : Type;
 }
 
 /// <summary>
 /// Event data wrapper containing the affected object and metadata.
+/// The actual structure varies by object type - use JsonElement for flexibility.
 /// </summary>
 public class CleverEventData
 {
@@ -56,39 +70,75 @@ public class CleverEventData
     public string Id { get; set; } = string.Empty;
 
     /// <summary>
-    /// Object type (e.g., "student", "teacher", "section")
+    /// Object type - can be a string like "student" or a complex object depending on event type.
+    /// Using JsonElement to handle both cases.
     /// </summary>
     [JsonPropertyName("object")]
-    public string Object { get; set; } = string.Empty;
+    public JsonElement? ObjectElement { get; set; }
 
     /// <summary>
-    /// Complete object data as JSON
-    /// Must be deserialized to specific type (CleverStudent, CleverTeacher, etc.)
+    /// Gets the object type as a string (extracts from JsonElement if needed).
+    /// Used by SyncService to determine how to process the event.
+    /// </summary>
+    [JsonIgnore]
+    public string Object
+    {
+        get
+        {
+            if (ObjectElement == null) return string.Empty;
+            if (ObjectElement.Value.ValueKind == JsonValueKind.String)
+                return ObjectElement.Value.GetString() ?? string.Empty;
+            // If it's an object, try to get a "type" property
+            if (ObjectElement.Value.ValueKind == JsonValueKind.Object &&
+                ObjectElement.Value.TryGetProperty("type", out var typeElement))
+                return typeElement.GetString() ?? string.Empty;
+            return string.Empty;
+        }
+    }
+
+    /// <summary>
+    /// Complete object data as JSON element for flexible deserialization.
+    /// Contains the actual record (student, teacher, section, etc.)
     /// </summary>
     [JsonPropertyName("data")]
-    public object? RawData { get; set; }
+    public JsonElement? RawData { get; set; }
 
     /// <summary>
     /// For "updated" events: hash of fields that changed (previous values)
     /// </summary>
     [JsonPropertyName("previous_attributes")]
-    public Dictionary<string, object>? PreviousAttributes { get; set; }
+    public JsonElement? PreviousAttributes { get; set; }
 }
 
 /// <summary>
-/// Response from Events API endpoint
+/// Response from Events API endpoint.
+/// Clever Events API v3.0 wraps each event in a data object:
+/// { "data": [ { "data": { id, type, created, data: {...} } }, ... ] }
 /// </summary>
 public class CleverEventsResponse
 {
     /// <summary>
-    /// Array of events
+    /// Array of event wrappers (each containing the actual event in a "data" property)
     /// </summary>
     [JsonPropertyName("data")]
-    public CleverEvent[] Data { get; set; } = Array.Empty<CleverEvent>();
+    public CleverEventWrapper[] Data { get; set; } = Array.Empty<CleverEventWrapper>();
 
     /// <summary>
     /// Pagination links (next, prev)
     /// </summary>
     [JsonPropertyName("links")]
     public CleverLink[]? Links { get; set; }
+}
+
+/// <summary>
+/// Wrapper for each event in the Events API response.
+/// The Events API returns: { "data": [ { "data": {...event...} }, ... ] }
+/// </summary>
+public class CleverEventWrapper
+{
+    /// <summary>
+    /// The actual event data
+    /// </summary>
+    [JsonPropertyName("data")]
+    public CleverEvent Event { get; set; } = new();
 }

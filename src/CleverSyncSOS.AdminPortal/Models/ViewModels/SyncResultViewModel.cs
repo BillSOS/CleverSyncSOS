@@ -14,13 +14,25 @@ public class SyncResultViewModel
     public SyncMode SyncMode { get; set; }
     public TimeSpan Duration { get; set; }
 
-    // Single school stats
+    // Single school stats (full sync)
     public int StudentsProcessed { get; set; }
     public int StudentsFailed { get; set; }
     public int StudentsDeleted { get; set; } // Full sync only
     public int TeachersProcessed { get; set; }
     public int TeachersFailed { get; set; }
     public int TeachersDeleted { get; set; } // Full sync only
+
+    // Incremental sync stats (Created/Updated/Deleted breakdown)
+    public int StudentsCreated { get; set; }
+    public int StudentsUpdated { get; set; }
+    public int TeachersCreated { get; set; }
+    public int TeachersUpdated { get; set; }
+    public int SectionsCreated { get; set; }
+    public int SectionsUpdated { get; set; }
+    public int SectionsDeleted { get; set; }
+    public int EventsProcessed { get; set; }
+    public int EventsSkipped { get; set; }
+    public bool IsIncrementalSync { get; set; }
 
     // Multi-school stats (district/all scope)
     public int TotalSchools { get; set; }

@@ -1,105 +1,90 @@
+using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+
 namespace CleverSyncSOS.Core.Database.SchoolDb.Entities;
 
 /// <summary>
 /// Represents an individual class section.
-/// Each section is an instance of a course taught during a specific period/term.
+/// Maps to [dbo].[Section] table in SchoolDb.
 /// </summary>
+[Table("Section")]
 public class Section
 {
     /// <summary>
     /// Primary key, auto-increment
     /// </summary>
+    [Key]
     public int SectionId { get; set; }
 
     /// <summary>
-    /// Unique identifier from Clever API
+    /// Section number (from Clever API SectionNumber field)
     /// </summary>
-    public string CleverSectionId { get; set; } = string.Empty;
+    [Required]
+    [MaxLength(32)]
+    public string SectionNumber { get; set; } = string.Empty;
 
     /// <summary>
-    /// Foreign key to Courses (required - all sections must have a course)
+    /// Subject/Department from Clever
     /// </summary>
-    public int CourseId { get; set; }
-
-    /// <summary>
-    /// Foreign key to Schools table
-    /// </summary>
-    public int SchoolId { get; set; }
-
-    /// <summary>
-    /// Section name (e.g., "Algebra I - Period 1")
-    /// </summary>
-    public string Name { get; set; } = string.Empty;
+    [MaxLength(64)]
+    public string? Subject { get; set; }
 
     /// <summary>
     /// Class period designation (e.g., "1st Period")
     /// </summary>
+    [MaxLength(64)]
     public string? Period { get; set; }
 
     /// <summary>
-    /// Subject from Clever
+    /// Section name (e.g., "Algebra I - Period 1")
     /// </summary>
-    public string? Subject { get; set; }
+    [MaxLength(64)]
+    public string? SectionName { get; set; }
 
     /// <summary>
-    /// Clever's normalized subject taxonomy
+    /// Unique identifier from Clever API
     /// </summary>
-    public string? SubjectNormalized { get; set; }
+    [Required]
+    [MaxLength(50)]
+    public string CleverSectionId { get; set; } = string.Empty;
 
     /// <summary>
-    /// Clever term identifier
+    /// Clever Course ID associated with this section (optional - sections can exist without courses)
+    /// Stored for reference/grouping purposes but not synced to a local Course table
     /// </summary>
-    public string? TermId { get; set; }
-
-    /// <summary>
-    /// Term name (e.g., "Fall 2024")
-    /// </summary>
-    public string? TermName { get; set; }
+    [MaxLength(50)]
+    public string? CleverCourseId { get; set; }
 
     /// <summary>
     /// Term start date
     /// </summary>
-    public DateTime? TermStartDate { get; set; }
+    public DateTime TermStartDate { get; set; }
 
     /// <summary>
     /// Term end date
     /// </summary>
-    public DateTime? TermEndDate { get; set; }
+    public DateTime TermEndDate { get; set; }
 
     /// <summary>
-    /// Grade level for section (e.g., "9", "K")
-    /// </summary>
-    public string? Grade { get; set; }
-
-    /// <summary>
-    /// Soft delete flag
-    /// </summary>
-    public bool IsActive { get; set; } = true;
-
-    /// <summary>
-    /// Last modified timestamp from Clever API
-    /// </summary>
-    public DateTime? LastModifiedInClever { get; set; }
-
-    /// <summary>
-    /// Record creation timestamp
+    /// When the record was first created in our database
     /// </summary>
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>
-    /// Last update timestamp
+    /// When the record's data last changed
     /// </summary>
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>
-    /// When section was deactivated
+    /// When soft-deleted (null = active)
     /// </summary>
-    public DateTime? DeactivatedAt { get; set; }
+    public DateTime? DeletedAt { get; set; }
 
     /// <summary>
-    /// Navigation property: Parent course (required)
+    /// When we last saw this record in Clever (for orphan detection).
+    /// Uses local time based on the district's timezone setting.
     /// </summary>
-    public Course Course { get; set; } = null!;
+    public DateTime LastSyncedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>
     /// Navigation property: Teacher-section associations

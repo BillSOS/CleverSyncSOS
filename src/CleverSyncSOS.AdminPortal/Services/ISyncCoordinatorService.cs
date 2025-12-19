@@ -31,4 +31,9 @@ public interface ISyncCoordinatorService
     /// Gets the current progress of a running sync operation.
     /// </summary>
     Task<SyncProgressUpdate?> GetCurrentProgressAsync(string scope);
+
+    /// <summary>
+    /// Gets all currently active sync operations.
+    /// </summary>
+    Task<IReadOnlyDictionary<string, SyncProgressUpdate>> GetAllActiveSyncsAsync();
 }

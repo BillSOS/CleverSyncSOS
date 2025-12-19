@@ -1,3 +1,4 @@
+using CleverSyncSOS.Core.CleverApi.Models;
 using CleverSyncSOS.Core.Database.SchoolDb.Entities;
 using CleverSyncSOS.Core.Database.SessionDb;
 using CleverSyncSOS.Core.Database.SessionDb.Entities;
@@ -36,10 +37,9 @@ public class ChangeTracker
                 // For new records, just note which fields were set
                 changes["FirstName"] = (null, newStudent.FirstName);
                 changes["LastName"] = (null, newStudent.LastName);
-                if (!string.IsNullOrEmpty(newStudent.Grade))
-                    changes["Grade"] = (null, newStudent.Grade);
-                if (!string.IsNullOrEmpty(newStudent.Email))
-                    changes["Email"] = (null, newStudent.Email);
+
+                if (newStudent.Grade.HasValue)
+                    changes["Grade"] = (null, newStudent.Grade.Value.ToString());
                 if (!string.IsNullOrEmpty(newStudent.StudentNumber))
                     changes["StudentNumber"] = (null, newStudent.StudentNumber);
             }
@@ -52,17 +52,14 @@ public class ChangeTracker
                 if (!StringsEqual(existingStudent.LastName, newStudent.LastName))
                     changes["LastName"] = (existingStudent.LastName, newStudent.LastName);
 
-                if (!StringsEqual(existingStudent.Grade, newStudent.Grade))
-                    changes["Grade"] = (existingStudent.Grade, newStudent.Grade);
-
-                if (!StringsEqual(existingStudent.Email, newStudent.Email))
-                    changes["Email"] = (existingStudent.Email, newStudent.Email);
+                if (existingStudent.Grade != newStudent.Grade)
+                    changes["Grade"] = (existingStudent.Grade?.ToString(), newStudent.Grade?.ToString());
 
                 if (!StringsEqual(existingStudent.StudentNumber, newStudent.StudentNumber))
                     changes["StudentNumber"] = (existingStudent.StudentNumber, newStudent.StudentNumber);
 
-                if (existingStudent.LastModifiedInClever != newStudent.LastModifiedInClever)
-                    changes["LastModifiedInClever"] = (existingStudent.LastModifiedInClever?.ToString("O"), newStudent.LastModifiedInClever?.ToString("O"));
+                if (existingStudent.UpdatedAt != newStudent.UpdatedAt)
+                    changes["UpdatedAt"] = (existingStudent.UpdatedAt.ToString("O"), newStudent.UpdatedAt.ToString("O"));
             }
 
             // Only record if there are actual changes
@@ -104,9 +101,14 @@ public class ChangeTracker
                 // For new records, just note which fields were set
                 changes["FirstName"] = (null, newTeacher.FirstName);
                 changes["LastName"] = (null, newTeacher.LastName);
-                changes["Email"] = (null, newTeacher.Email);
-                if (!string.IsNullOrEmpty(newTeacher.Title))
-                    changes["Title"] = (null, newTeacher.Title);
+                if (!string.IsNullOrEmpty(newTeacher.FullName))
+                    changes["FullName"] = (null, newTeacher.FullName);
+                if (!string.IsNullOrEmpty(newTeacher.StaffNumber))
+                    changes["StaffNumber"] = (null, newTeacher.StaffNumber);
+                if (!string.IsNullOrEmpty(newTeacher.TeacherNumber))
+                    changes["TeacherNumber"] = (null, newTeacher.TeacherNumber);
+                if (!string.IsNullOrEmpty(newTeacher.UserName))
+                    changes["UserName"] = (null, newTeacher.UserName);
             }
             else if (changeType == "Updated" && existingTeacher != null)
             {
@@ -117,14 +119,20 @@ public class ChangeTracker
                 if (!StringsEqual(existingTeacher.LastName, newTeacher.LastName))
                     changes["LastName"] = (existingTeacher.LastName, newTeacher.LastName);
 
-                if (!StringsEqual(existingTeacher.Email, newTeacher.Email))
-                    changes["Email"] = (existingTeacher.Email, newTeacher.Email);
+                if (!StringsEqual(existingTeacher.FullName, newTeacher.FullName))
+                    changes["FullName"] = (existingTeacher.FullName, newTeacher.FullName);
 
-                if (!StringsEqual(existingTeacher.Title, newTeacher.Title))
-                    changes["Title"] = (existingTeacher.Title, newTeacher.Title);
+                if (!StringsEqual(existingTeacher.StaffNumber, newTeacher.StaffNumber))
+                    changes["StaffNumber"] = (existingTeacher.StaffNumber, newTeacher.StaffNumber);
 
-                if (existingTeacher.LastModifiedInClever != newTeacher.LastModifiedInClever)
-                    changes["LastModifiedInClever"] = (existingTeacher.LastModifiedInClever?.ToString("O"), newTeacher.LastModifiedInClever?.ToString("O"));
+                if (!StringsEqual(existingTeacher.TeacherNumber, newTeacher.TeacherNumber))
+                    changes["TeacherNumber"] = (existingTeacher.TeacherNumber, newTeacher.TeacherNumber);
+
+                if (!StringsEqual(existingTeacher.UserName, newTeacher.UserName))
+                    changes["UserName"] = (existingTeacher.UserName, newTeacher.UserName);
+
+                if (existingTeacher.UpdatedAt != newTeacher.UpdatedAt)
+                    changes["UpdatedAt"] = (existingTeacher.UpdatedAt.ToString("O"), newTeacher.UpdatedAt.ToString("O"));
             }
 
             // Only record if there are actual changes
@@ -134,7 +142,7 @@ public class ChangeTracker
                 {
                     SyncId = syncId,
                     EntityType = "Teacher",
-                    EntityId = newTeacher.CleverTeacherId,
+                    EntityId = newTeacher.CleverTeacherId ?? string.Empty,
                     EntityName = $"{newTeacher.FirstName} {newTeacher.LastName}",
                     ChangeType = changeType,
                     FieldsChanged = string.Join(", ", changes.Keys),
@@ -215,6 +223,7 @@ public class ChangeTracker
 
     /// <summary>
     /// Tracks changes for a section record.
+    /// Note: CourseId FK no longer exists - courses are not synced. CleverCourseId is stored for reference only.
     /// </summary>
     public void TrackSectionChange(int syncId, Section? existingSection, Section newSection, string changeType)
     {
@@ -224,20 +233,24 @@ public class ChangeTracker
 
             if (changeType == "Created")
             {
-                changes["Name"] = (null, newSection.Name);
+                if (!string.IsNullOrEmpty(newSection.SectionNumber))
+                    changes["SectionNumber"] = (null, newSection.SectionNumber);
+                if (!string.IsNullOrEmpty(newSection.SectionName))
+                    changes["SectionName"] = (null, newSection.SectionName);
                 if (!string.IsNullOrEmpty(newSection.Period))
                     changes["Period"] = (null, newSection.Period);
                 if (!string.IsNullOrEmpty(newSection.Subject))
                     changes["Subject"] = (null, newSection.Subject);
-                if (!string.IsNullOrEmpty(newSection.Grade))
-                    changes["Grade"] = (null, newSection.Grade);
-                if (newSection.CourseId > 0)
-                    changes["CourseId"] = (null, newSection.CourseId.ToString());
+                if (!string.IsNullOrEmpty(newSection.CleverCourseId))
+                    changes["CleverCourseId"] = (null, newSection.CleverCourseId);
             }
             else if (changeType == "Updated" && existingSection != null)
             {
-                if (!StringsEqual(existingSection.Name, newSection.Name))
-                    changes["Name"] = (existingSection.Name, newSection.Name);
+                if (!StringsEqual(existingSection.SectionNumber, newSection.SectionNumber))
+                    changes["SectionNumber"] = (existingSection.SectionNumber, newSection.SectionNumber);
+
+                if (!StringsEqual(existingSection.SectionName, newSection.SectionName))
+                    changes["SectionName"] = (existingSection.SectionName, newSection.SectionName);
 
                 if (!StringsEqual(existingSection.Period, newSection.Period))
                     changes["Period"] = (existingSection.Period, newSection.Period);
@@ -245,14 +258,11 @@ public class ChangeTracker
                 if (!StringsEqual(existingSection.Subject, newSection.Subject))
                     changes["Subject"] = (existingSection.Subject, newSection.Subject);
 
-                if (!StringsEqual(existingSection.Grade, newSection.Grade))
-                    changes["Grade"] = (existingSection.Grade, newSection.Grade);
+                if (!StringsEqual(existingSection.CleverCourseId, newSection.CleverCourseId))
+                    changes["CleverCourseId"] = (existingSection.CleverCourseId, newSection.CleverCourseId);
 
-                if (existingSection.CourseId != newSection.CourseId)
-                    changes["CourseId"] = (existingSection.CourseId.ToString(), newSection.CourseId.ToString());
-
-                if (existingSection.LastModifiedInClever != newSection.LastModifiedInClever)
-                    changes["LastModifiedInClever"] = (existingSection.LastModifiedInClever?.ToString("O"), newSection.LastModifiedInClever?.ToString("O"));
+                if (existingSection.UpdatedAt != newSection.UpdatedAt)
+                    changes["UpdatedAt"] = (existingSection.UpdatedAt.ToString("O"), newSection.UpdatedAt.ToString("O"));
             }
 
             if (changes.Any())
@@ -262,7 +272,7 @@ public class ChangeTracker
                     SyncId = syncId,
                     EntityType = "Section",
                     EntityId = newSection.CleverSectionId,
-                    EntityName = newSection.Name,
+                    EntityName = newSection.SectionName ?? $"Section {newSection.SectionNumber}",
                     ChangeType = changeType,
                     FieldsChanged = string.Join(", ", changes.Keys),
                     OldValues = SerializeValues(changes.ToDictionary(c => c.Key, c => c.Value.OldValue)),

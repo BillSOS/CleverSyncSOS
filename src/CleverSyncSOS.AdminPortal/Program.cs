@@ -117,18 +117,27 @@ catch (Exception ex)
     throw;
 }
 
-builder.Services.AddDbContext<SessionDbContext>(options =>
+// Register DbContextFactory for components that need to create DbContext instances
+// outside of the normal request scope (e.g., timer callbacks in Blazor components)
+// Using AddPooledDbContextFactory which provides both DbContextFactory and AddDbContext-like scoped behavior
+builder.Services.AddPooledDbContextFactory<SessionDbContext>(options =>
     options.UseSqlServer(finalConnectionString));
 
+// Register a scoped DbContext that uses the factory (for backwards compatibility with existing code)
+builder.Services.AddScoped(sp => sp.GetRequiredService<IDbContextFactory<SessionDbContext>>().CreateDbContext());
+
 // Register application services
+builder.Services.AddSingleton<ActiveSyncTracker>(); // Singleton to track active syncs across all scopes
 builder.Services.AddScoped<ICleverRoleMappingService, CleverRoleMappingService>();
 builder.Services.AddScoped<IBypassAuthenticationService, BypassAuthenticationService>();
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
 builder.Services.AddScoped<ISchoolScopeService, SchoolScopeService>();
 builder.Services.AddScoped<ISyncCoordinatorService, SyncCoordinatorService>();
+builder.Services.AddScoped<IEventsCheckService, EventsCheckService>();
 
-// Register Core sync service (from CleverSyncSOS.Core)
+// Register Core sync service and dependencies (from CleverSyncSOS.Core)
+builder.Services.AddScoped<CleverSyncSOS.Core.Services.ILocalTimeService, CleverSyncSOS.Core.Services.LocalTimeService>();
 builder.Services.AddScoped<CleverSyncSOS.Core.Sync.ISyncService, CleverSyncSOS.Core.Sync.SyncService>();
 
 // Register the school DB factory (concrete type used directly by SyncService)
@@ -233,7 +242,8 @@ builder.Services.AddHttpClient<ICleverApiClient, CleverApiClient>((sp, client) =
 
 // Add Health Checks
 builder.Services.AddHealthChecks()
-    .AddCheck<CleverSyncSOS.Core.Health.CleverAuthenticationHealthCheck>("CleverAuthentication");
+    .AddCheck<CleverSyncSOS.Core.Health.CleverAuthenticationHealthCheck>("CleverAuthentication")
+    .AddCheck<CleverSyncSOS.Core.Health.CleverEventsHealthCheck>("CleverEventsApi");
 
 var app = builder.Build();
 

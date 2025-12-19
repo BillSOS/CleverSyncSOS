@@ -11,7 +11,16 @@
 
 <PageTitle>Bypass Login - CleverSync Admin</PageTitle>
 
-<div class="container mt-5">
+<style>
+    .signing-in {
+        cursor: wait !important;
+    }
+    .signing-in * {
+        cursor: wait !important;
+    }
+</style>
+
+<div class="container mt-5 @(_isSubmitting ? "signing-in" : "")">
     <div class="row justify-content-center">
         <div class="col-md-5">
             <div class="card">
@@ -111,12 +120,17 @@
                     userAgent: userAgent);
 
                 _errorMessage = "Invalid password. Please try again.";
+                _isSubmitting = false;
+                _model.Password = string.Empty;
                 return;
             }
 
             // Submit a native POST so the server can call HttpContext.SignInAsync and set cookies.
             // Include an antiforgery token if your endpoint requires one.
+            // Don't reset _isSubmitting here - the page will navigate away after form submit
             await JS.InvokeVoidAsync("formPost", "/admin/bypass-login-submit", new { password = _model.Password });
+            // Keep showing spinner/wait cursor until redirect completes
+            return;
         }
         catch (Exception ex)
         {
@@ -130,9 +144,6 @@
 
             _errorMessage = "An error occurred during authentication. Please try again.";
             Console.WriteLine($"Bypass login error: {ex}");
-        }
-        finally
-        {
             _isSubmitting = false;
             _model.Password = string.Empty;
         }
@@ -147,6 +158,10 @@
 
 <script>
     window.formPost = function(url, data) {
+        // Set cursor to wait on entire document
+        document.body.style.cursor = 'wait';
+        document.documentElement.style.cursor = 'wait';
+
         const form = document.createElement('form');
         form.method = 'POST';
         form.action = url;

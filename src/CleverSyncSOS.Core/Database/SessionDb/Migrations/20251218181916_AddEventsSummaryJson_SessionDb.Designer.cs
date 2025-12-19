@@ -4,6 +4,7 @@ using CleverSyncSOS.Core.Database.SessionDb;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CleverSyncSOS.Core.Database.SessionDb.Migrations
 {
     [DbContext(typeof(SessionDbContext))]
-    partial class SessionDbContextModelSnapshot : ModelSnapshot
+    [Migration("20251218181916_AddEventsSummaryJson_SessionDb")]
+    partial class AddEventsSummaryJson_SessionDb
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

@@ -8,6 +8,7 @@
 @inject ISchoolScopeService SchoolScopeService
 @inject ISyncCoordinatorService SyncCoordinatorService
 @inject ICurrentUserService CurrentUserService
+@inject ActiveSyncTracker ActiveSyncTracker
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
 @implements IAsyncDisposable
@@ -19,6 +20,21 @@
         <div class="col-md-8 offset-md-2">
             <h2>Manual Sync</h2>
             <hr />
+
+            @* Show reconnect option if there's an active sync for this scope *@
+            @if (_existingActiveSync != null && !_viewModel.IsSyncInProgress)
+            {
+                <div class="alert alert-info" role="alert">
+                    <strong>Sync in Progress</strong>
+                    <p class="mb-2">A sync operation is already running for this scope.</p>
+                    <p class="mb-2">
+                        <strong>Progress:</strong> @_existingActiveSync.PercentComplete% - @_existingActiveSync.CurrentOperation
+                    </p>
+                    <button class="btn btn-primary btn-sm" @onclick="ReconnectToActiveSync">
+                        <i class="bi bi-arrow-repeat"></i> Reconnect to View Progress
+                    </button>
+                </div>
+            }
 
             @if (_loading)
             {
@@ -75,6 +91,7 @@
     private bool _loading = true;
     private string? _errorMessage;
     private int _currentUserId;
+    private SyncProgressUpdate? _existingActiveSync;
 
     protected override async Task OnInitializedAsync()
     {
@@ -95,6 +112,9 @@
                 _viewModel.SelectedScope = _viewModel.AvailableScopes.First().Value;
             }
 
+            // Check if there's an existing active sync for any available scope
+            await CheckForExistingActiveSync();
+
             // Initialize SignalR connection
             await InitializeSignalRConnection();
 
@@ -105,6 +125,39 @@
             _errorMessage = $"Failed to initialize page: {ex.Message}";
             _loading = false;
         }
+    }
+
+    private async Task CheckForExistingActiveSync()
+    {
+        var activeSyncs = await SyncCoordinatorService.GetAllActiveSyncsAsync();
+
+        // Check if any of the user's available scopes have an active sync
+        foreach (var scope in _viewModel.AvailableScopes)
+        {
+            if (activeSyncs.TryGetValue(scope.Value, out var progress))
+            {
+                _existingActiveSync = progress;
+                _viewModel.SelectedScope = scope.Value; // Select the scope with active sync
+                break;
+            }
+        }
+    }
+
+    private async Task ReconnectToActiveSync()
+    {
+        if (_existingActiveSync == null) return;
+
+        // Subscribe to progress updates for this scope
+        if (_hubConnection != null)
+        {
+            await _hubConnection.InvokeAsync("SubscribeToSyncProgress", _existingActiveSync.Scope);
+        }
+
+        // Mark as in progress and show the current progress
+        _viewModel.IsSyncInProgress = true;
+        _viewModel.CurrentProgress = _existingActiveSync;
+        _existingActiveSync = null; // Clear the banner
+        StateHasChanged();
     }
 
     private async Task InitializeSignalRConnection()
@@ -231,11 +284,51 @@
         }
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            // Update navigation warning based on sync state
+            await JSRuntime.InvokeVoidAsync("syncNavigationWarning.setEnabled", _viewModel.IsSyncInProgress);
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
+        // Clear navigation warning
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("syncNavigationWarning.setEnabled", false);
+        }
+        catch
+        {
+            // Ignore errors during disposal (page might already be unloaded)
+        }
+
         if (_hubConnection != null)
         {
             await _hubConnection.DisposeAsync();
         }
     }
 }
+
+<script suppress-error="BL9992">
+    window.syncNavigationWarning = {
+        handler: null,
+        setEnabled: function(enabled) {
+            if (enabled) {
+                this.handler = function(e) {
+                    e.preventDefault();
+                    e.returnValue = 'A sync operation is in progress. If you leave, you will lose visibility of the progress (the sync will continue on the server).';
+                    return e.returnValue;
+                };
+                window.addEventListener('beforeunload', this.handler);
+            } else {
+                if (this.handler) {
+                    window.removeEventListener('beforeunload', this.handler);
+                    this.handler = null;
+                }
+            }
+        }
+    };
+</script>
