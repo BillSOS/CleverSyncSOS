@@ -33,6 +33,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "infra", "infra", "{FC7537CF
 		infra\Readme.md = infra\Readme.md
 	EndProjectSection
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CleverSyncSOS.AdminPortal", "src\CleverSyncSOS.AdminPortal\CleverSyncSOS.AdminPortal.csproj", "{B27065C9-DA91-863D-D53A-1FC51DE84E33}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -127,6 +129,18 @@ Global
 		{69BBC163-F3B3-42E7-9CFB-1EA9F191E183}.Release|x64.Build.0 = Release|Any CPU
 		{69BBC163-F3B3-42E7-9CFB-1EA9F191E183}.Release|x86.ActiveCfg = Release|Any CPU
 		{69BBC163-F3B3-42E7-9CFB-1EA9F191E183}.Release|x86.Build.0 = Release|Any CPU
+		{B27065C9-DA91-863D-D53A-1FC51DE84E33}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B27065C9-DA91-863D-D53A-1FC51DE84E33}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B27065C9-DA91-863D-D53A-1FC51DE84E33}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{B27065C9-DA91-863D-D53A-1FC51DE84E33}.Debug|x64.Build.0 = Debug|Any CPU
+		{B27065C9-DA91-863D-D53A-1FC51DE84E33}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{B27065C9-DA91-863D-D53A-1FC51DE84E33}.Debug|x86.Build.0 = Debug|Any CPU
+		{B27065C9-DA91-863D-D53A-1FC51DE84E33}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B27065C9-DA91-863D-D53A-1FC51DE84E33}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B27065C9-DA91-863D-D53A-1FC51DE84E33}.Release|x64.ActiveCfg = Release|Any CPU
+		{B27065C9-DA91-863D-D53A-1FC51DE84E33}.Release|x64.Build.0 = Release|Any CPU
+		{B27065C9-DA91-863D-D53A-1FC51DE84E33}.Release|x86.ActiveCfg = Release|Any CPU
+		{B27065C9-DA91-863D-D53A-1FC51DE84E33}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -139,6 +153,7 @@ Global
 		{52427CF2-9D4D-4865-B172-F20F0FA75D6F} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{66E4414C-BD4F-4F9C-BE16-BB8ED318BFBC} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{69BBC163-F3B3-42E7-9CFB-1EA9F191E183} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{B27065C9-DA91-863D-D53A-1FC51DE84E33} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {AD9EC2B9-EBB4-436E-9024-F7F9F57283AA}

@@ -1,0 +1,387 @@
+﻿@page "/"
+@attribute [Authorize]
+@using Microsoft.Extensions.Diagnostics.HealthChecks
+@using CleverSyncSOS.Core.Database.SessionDb
+@using CleverSyncSOS.Core.Database.SessionDb.Entities
+@using CleverSyncSOS.AdminPortal.Services
+@using Microsoft.EntityFrameworkCore
+@inject HealthCheckService HealthCheckService
+@inject IDbContextFactory<SessionDbContext> DbContextFactory
+@inject ICurrentUserService CurrentUser
+@inject IJSRuntime JS
+
+<PageTitle>Dashboard - CleverSync Admin</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="d-flex align-items-center">
+        <img src="favicon.png" alt="CleverSync Logo" style="height: 2.5rem; margin-right: 1rem;" />
+        <h1 class="mb-0">CleverSync Admin Portal</h1>
+    </div>
+    <div>
+        <span class="badge bg-secondary me-2">Auto-refresh: 30s</span>
+        <span class="text-muted small">Last updated: @GetLocalTimeFormatted(_lastUpdate, "h:mm:ss tt")</span>
+    </div>
+</div>
+
+<AuthorizeView>
+    <Authorized>
+        @if (_loading && _healthReport == null)
+        {
+            <div class="text-center my-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading dashboard...</span>
+                </div>
+            </div>
+        }
+        else
+        {
+            <!-- System Health Status Card (FR-002) -->
+            @if (_healthReport != null)
+            {
+                <div class="row mb-4">
+                    <div class="col-md-12">
+                        <div class="card border-@GetStatusColor(_healthReport.Status)">
+                            <div class="card-header bg-@GetStatusColor(_healthReport.Status) bg-opacity-10">
+                                <div class="d-flex align-items-center justify-content-between">
+                                    <div>
+                                        <h5 class="mb-0">
+                                            <span class="badge bg-@GetStatusColor(_healthReport.Status)">
+                                                @_healthReport.Status
+                                            </span>
+                                            System Health
+                                        </h5>
+                                    </div>
+                                    <div class="text-muted small">
+                                        Response time: @_healthReport.TotalDuration.TotalMilliseconds.ToString("F0")ms
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            <!-- Key Metrics (FR-002) -->
+            <div class="row mb-4">
+                <div class="col-md-3">
+                    <div class="card">
+                        <div class="card-body">
+                            <h6 class="card-subtitle mb-2 text-muted">Active Schools</h6>
+                            <h3 class="card-title">@_activeSchoolCount</h3>
+                            <p class="text-muted small mb-0">@_totalSchoolCount total</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card">
+                        <div class="card-body">
+                            <h6 class="card-subtitle mb-2 text-muted">Recent Syncs (24h)</h6>
+                            <h3 class="card-title">@_recentSyncCount</h3>
+                            <p class="text-muted small mb-0">@_successfulSyncCount successful</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card">
+                        <div class="card-body">
+                            <h6 class="card-subtitle mb-2 text-muted">Failed Syncs</h6>
+                            <h3 class="card-title text-@(_failedSyncCount > 0 ? "danger" : "success")">@_failedSyncCount</h3>
+                            <p class="text-muted small mb-0">Last 24 hours</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card">
+                        <div class="card-body">
+                            <h6 class="card-subtitle mb-2 text-muted">Last Sync</h6>
+                            <h3 class="card-title small">@GetLastSyncTimeFormatted("h:mm tt")</h3>
+                            <p class="text-muted small mb-0">@GetLastSyncTimeFormatted("MMM dd")</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Links -->
+            <div class="row mt-4">
+                <AuthorizeView Policy="SchoolAdmin" Context="schoolAdminContext">
+                    <Authorized>
+                        <div class="col-md-4">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5 class="card-title">Sync Dashboard</h5>
+                                    <p class="card-text">Monitor sync operations and view sync history.</p>
+                                    <a href="/sync" class="btn btn-primary">Go to Sync Dashboard</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5 class="card-title">Schools</h5>
+                                    <p class="card-text">View and manage school information.</p>
+                                    <a href="/schools" class="btn btn-primary">Go to Schools</a>
+                                </div>
+                            </div>
+                        </div>
+                    </Authorized>
+                </AuthorizeView>
+
+                <AuthorizeView Policy="DistrictAdmin" Context="districtAdminContext">
+                    <Authorized>
+                        <div class="col-md-4">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5 class="card-title">Districts</h5>
+                                    <p class="card-text">Manage district configuration and settings.</p>
+                                    <a href="/districts" class="btn btn-primary">Go to Districts</a>
+                                </div>
+                            </div>
+                        </div>
+                    </Authorized>
+                </AuthorizeView>
+
+                <AuthorizeView Policy="SuperAdmin" Context="superAdminContext">
+                    <Authorized>
+                        <div class="col-md-4">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5 class="card-title">System Health</h5>
+                                    <p class="card-text">Monitor system health and API status.</p>
+                                    <a href="/health" class="btn btn-primary">Go to System Health</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5 class="card-title">Users</h5>
+                                    <p class="card-text">Manage user accounts and permissions.</p>
+                                    <a href="/users" class="btn btn-primary">Go to Users</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5 class="card-title">Audit Logs</h5>
+                                    <p class="card-text">View audit logs and security events.</p>
+                                    <a href="/audit" class="btn btn-primary">Go to Audit Logs</a>
+                                </div>
+                            </div>
+                        </div>
+                    </Authorized>
+                </AuthorizeView>
+            </div>
+        }
+    </Authorized>
+    <NotAuthorized>
+        <div class="alert alert-warning mt-4">
+            <h4>Authentication Required</h4>
+            <p>Please <a href="/login">sign in</a> to access the admin portal.</p>
+        </div>
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    private bool _loading = true;
+    private HealthReport? _healthReport;
+    private int _activeSchoolCount;
+    private int _totalSchoolCount;
+    private int _recentSyncCount;
+    private int _successfulSyncCount;
+    private int _failedSyncCount;
+    private DateTime? _lastSyncTime;
+    private DateTime _lastUpdate = DateTime.UtcNow;
+    private System.Threading.Timer? _refreshTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDashboardData();
+
+        // Set up auto-refresh timer (30 seconds) - FR-002
+        _refreshTimer = new System.Threading.Timer(async _ =>
+        {
+            await InvokeAsync(async () =>
+            {
+                await LoadDashboardData();
+                StateHasChanged();
+            });
+        }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    private async Task LoadDashboardData()
+    {
+        try
+        {
+            _loading = true;
+
+            // Load health status
+            try
+            {
+                _healthReport = await HealthCheckService.CheckHealthAsync();
+            }
+            catch
+            {
+                // Health check failed, but continue loading other data
+                _healthReport = null;
+            }
+
+            // Create a new DbContext for this operation to avoid disposed context issues
+            // when called from timer callbacks (which run outside the normal request scope)
+            await using var dbContext = await DbContextFactory.CreateDbContextAsync();
+
+            // Load school metrics (scoped by user role)
+            var schoolsQuery = dbContext.Schools.AsQueryable();
+
+            if (CurrentUser.IsSchoolAdmin && CurrentUser.SchoolId.HasValue)
+            {
+                schoolsQuery = schoolsQuery.Where(s => s.SchoolId == CurrentUser.SchoolId.Value);
+            }
+            else if (CurrentUser.IsDistrictAdmin && !string.IsNullOrEmpty(CurrentUser.DistrictId))
+            {
+                schoolsQuery = schoolsQuery.Where(s => s.DistrictId == CurrentUser.DistrictId);
+            }
+
+            _totalSchoolCount = await schoolsQuery.CountAsync();
+            _activeSchoolCount = await schoolsQuery.Where(s => s.IsActive).CountAsync();
+
+            // Load sync metrics (last 24 hours)
+            var syncHistoryQuery = dbContext.SyncHistory
+                .Where(s => s.SyncStartTime >= DateTime.UtcNow.AddDays(-1));
+
+            if (CurrentUser.IsSchoolAdmin && CurrentUser.SchoolId.HasValue)
+            {
+                syncHistoryQuery = syncHistoryQuery.Where(s => s.SchoolId == CurrentUser.SchoolId.Value);
+            }
+            else if (CurrentUser.IsDistrictAdmin && !string.IsNullOrEmpty(CurrentUser.DistrictId))
+            {
+                var districtSchoolIds = await schoolsQuery.Select(s => s.SchoolId).ToListAsync();
+                syncHistoryQuery = syncHistoryQuery.Where(s => districtSchoolIds.Contains(s.SchoolId));
+            }
+
+            _recentSyncCount = await syncHistoryQuery.CountAsync();
+            _successfulSyncCount = await syncHistoryQuery.Where(s => s.Status == "Success").CountAsync();
+            _failedSyncCount = await syncHistoryQuery.Where(s => s.Status == "Failed").CountAsync();
+
+            // Get last sync time
+            _lastSyncTime = await dbContext.SyncHistory
+                .OrderByDescending(s => s.SyncStartTime)
+                .Select(s => s.SyncStartTime)
+                .FirstOrDefaultAsync();
+
+            _lastUpdate = DateTime.UtcNow;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading dashboard data: {ex.Message}");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private string GetStatusColor(HealthStatus status)
+    {
+        return status switch
+        {
+            HealthStatus.Healthy => "success",
+            HealthStatus.Degraded => "warning",
+            HealthStatus.Unhealthy => "danger",
+            _ => "secondary"
+        };
+    }
+
+    private string GetUserRole(System.Security.Claims.ClaimsPrincipal user)
+    {
+        if (user.IsInRole("SuperAdmin")) return "Super Administrator";
+        if (user.IsInRole("DistrictAdmin")) return "District Administrator";
+        if (user.IsInRole("SchoolAdmin")) return "School Administrator";
+        return "User";
+    }
+
+    private string? _cachedTimeZoneId;
+
+    private string GetTimeZoneId()
+    {
+        // Return cached value if available (avoids creating DbContext on every call)
+        if (_cachedTimeZoneId != null)
+        {
+            return _cachedTimeZoneId;
+        }
+
+        // Try to get timezone from user's district
+        string? timeZoneId = null;
+
+        try
+        {
+            using var dbContext = DbContextFactory.CreateDbContext();
+
+            if (!string.IsNullOrEmpty(CurrentUser.DistrictId))
+            {
+                timeZoneId = dbContext.Districts
+                    .Where(d => d.CleverDistrictId == CurrentUser.DistrictId)
+                    .Select(d => d.LocalTimeZone)
+                    .FirstOrDefault();
+            }
+            else if (CurrentUser.SchoolId.HasValue)
+            {
+                // Get timezone from school's district
+                timeZoneId = dbContext.Schools
+                    .Where(s => s.SchoolId == CurrentUser.SchoolId.Value)
+                    .Join(dbContext.Districts, s => s.DistrictId, d => d.CleverDistrictId, (s, d) => d.LocalTimeZone)
+                    .FirstOrDefault();
+            }
+        }
+        catch
+        {
+            // If DbContext creation fails, use default
+        }
+
+        // Default to Eastern Standard Time if no timezone found (e.g., for Super Admins)
+        _cachedTimeZoneId = timeZoneId ?? "Eastern Standard Time";
+        return _cachedTimeZoneId;
+    }
+
+    private string GetLocalTimeFormatted(DateTime utcTime, string format)
+    {
+        try
+        {
+            var timeZoneId = GetTimeZoneId();
+            var timeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+            var localTime = TimeZoneInfo.ConvertTimeFromUtc(utcTime, timeZone);
+            return localTime.ToString(format);
+        }
+        catch
+        {
+            // Fallback to UTC if timezone conversion fails
+            return utcTime.ToString(format) + " UTC";
+        }
+    }
+
+    private string GetLastSyncTimeFormatted(string format)
+    {
+        if (!_lastSyncTime.HasValue)
+        {
+            return format.Contains("tt") || format.Contains("HH") || format.Contains("h:") ? "N/A" : "No syncs";
+        }
+
+        try
+        {
+            var timeZoneId = GetTimeZoneId();
+            var timeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+            var localTime = TimeZoneInfo.ConvertTimeFromUtc(_lastSyncTime.Value, timeZone);
+            return localTime.ToString(format);
+        }
+        catch
+        {
+            // Fallback to UTC if timezone conversion fails
+            return _lastSyncTime.Value.ToString(format) + " UTC";
+        }
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+    }
+}

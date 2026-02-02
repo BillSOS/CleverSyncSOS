@@ -1,0 +1,3 @@
+<step title="Begin HttpPost https://cleversyncsos.scm.azurewebsites.net/api/app/restart, x-ms-request-id: 40f1d17f-cd24-11f0-87ff-e02e0bc384b1" date="2025-11-29T13:06:59.110" instance="eef76b" >
+  <step title="Cleanup Xml Logs" date="2025-11-29T13:06:59.129" /><!-- duration: 0ms -->
+</step><!-- duration: 31ms -->

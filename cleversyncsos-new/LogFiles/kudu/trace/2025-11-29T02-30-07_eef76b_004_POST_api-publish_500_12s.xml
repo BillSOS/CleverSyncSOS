@@ -1,0 +1,110 @@
+<step title="Incoming Request" date="2025-11-29T02:30:07.043" instance="eef76b" url="/api/publish?type=zip" method="POST" type="request" pid="8604,2,9" Cache-Control="no-cache" Content-Length="7720997" Content-Type="application/octet-stream" Accept="*/*" Accept-Encoding="gzip, deflate" Authorization="Bas..." Host="cleversyncsos.scm.azurewebsites.net" User-Agent="AZURECLI/2.79.0 (MSI)" x-ms-client-request-id="50edc28e-cccb-11f0-8215-e02e0bc384b1" X-ARR-LOG-ID="50edc28e-cccb-11f0-8215-e02e0bc384b1" CLIENT-IP="208.102.8.31:51696" X-SITE-DEPLOYMENT-ID="CleverSyncSOS" WAS-DEFAULT-HOSTNAME="cleversyncsos.scm.azurewebsites.net" X-Forwarded-Proto="https" X-AppService-Proto="https" X-Forwarded-TlsVersion="1.3" X-WAWS-Unencoded-URL="/api/publish?type=zip" >
+  <step title="Cleanup Xml Logs" date="2025-11-29T02:30:07.043" /><!-- duration: 30ms -->
+  <step title="OneDeploy" date="2025-11-29T02:30:07.154" >
+    <step title="Starting PushDeployAsync" date="2025-11-29T02:30:07.245" /><!-- duration: 19ms -->
+    <step title="Updating shutdown sentinel last write time" date="2025-11-29T02:30:07.405" SemaphoreCount="7" /><!-- duration: 0ms -->
+    <step title="LockFile &apos;C:\home\site\locks\deployments.lock&apos; acquired" date="2025-11-29T02:30:07.465" /><!-- duration: 0ms -->
+    <step title="Saving request content to C:\local\Temp\zipdeploy\rgfv4w0n.zip" date="2025-11-29T02:30:07.485" >
+      <step title="Total 7,720,997 bytes written to C:\local\Temp\zipdeploy\rgfv4w0n.zip" date="2025-11-29T02:30:07.776" /><!-- duration: 15ms -->
+    </step><!-- duration: 307ms -->
+    <step title="LockFile &apos;C:\home\site\locks\deployments.lock&apos; released" date="2025-11-29T02:30:07.807" /><!-- duration: 19ms -->
+    <step title="Deleting shutdown sentinel file" date="2025-11-29T02:30:07.839" SemaphoreCount="8" /><!-- duration: 18ms -->
+    <step title="Starting FetchDeploy" date="2025-11-29T02:30:07.857" /><!-- duration: 13ms -->
+    <step title="Attempting to fetch target branch HEAD" date="2025-11-29T02:30:07.887" /><!-- duration: 0ms -->
+    <step title="Updating shutdown sentinel last write time" date="2025-11-29T02:30:07.917" SemaphoreCount="7" /><!-- duration: 0ms -->
+    <step title="LockFile &apos;C:\home\site\locks\deployments.lock&apos; acquired" date="2025-11-29T02:30:07.932" /><!-- duration: 0ms -->
+    <step title="Performing fetch based deployment" date="2025-11-29T02:30:07.979" >
+      <step title="Creating temporary deployment" date="2025-11-29T02:30:07.979" /><!-- duration: 172ms -->
+      <step title="Fetching changes." date="2025-11-29T02:30:08.339" /><!-- duration: 0ms -->
+      <step title="Starting LocalZipHandler" date="2025-11-29T02:30:08.370" /><!-- duration: 0ms -->
+      <step title="Starting LocalZipFetch" date="2025-11-29T02:30:08.401" /><!-- duration: 0ms -->
+      <step title="Cleaning up temp folders from previous zip deployments and extracting pushed zip file C:\local\Temp\zipdeploy\rgfv4w0n.zip (7.36 MB) to C:\local\Temp\zipdeploy\extracted" date="2025-11-29T02:30:08.432" /><!-- duration: 0ms -->
+      <step title="Cleaning up temp folders from previous zip deployments and extracting pushed zip file C:\local\Temp\zipdeploy\rgfv4w0n.zip (7.36 MB) to C:\local\Temp\zipdeploy\extracted" date="2025-11-29T02:30:08.450" >
+        <step title="Renaming extractTargetDirectory(C:\local\Temp\zipdeploy\extracted) to tempDirectory(C:\local\Temp\zipdeploy\gdmtjspm.edg)" date="2025-11-29T02:30:08.464" /><!-- duration: 16ms -->
+      </step><!-- duration: 9784ms -->
+      <step title="End of Central Directory record could not be found. DEPLOYMENTINFO: deploymentPath = OneDeploy, deployer = OneDeploy, os = windows, sku = Standard, siteName = CleverSyncSOS, siteHostName = cleversyncsos.azurewebsites.net, deploymentStatus = Error" date="2025-11-29T02:30:18.276" /><!-- duration: 31ms -->
+    </step><!-- duration: 10456ms -->
+    <step title="LockFile &apos;C:\home\site\locks\deployments.lock&apos; released" date="2025-11-29T02:30:18.435" /><!-- duration: 12ms -->
+    <step title="Deleting shutdown sentinel file" date="2025-11-29T02:30:18.466" SemaphoreCount="8" /><!-- duration: 30ms -->
+  </step><!-- duration: 11342ms -->
+  <step title="Error occurred" date="2025-11-29T02:30:18.526" type="error" text="End of Central Directory record could not be found." stackTrace="   at System.IO.Compression.ZipArchive.ReadEndOfCentralDirectory()
+   at System.IO.Compression.ZipArchive.Init(Stream stream, ZipArchiveMode mode, Boolean leaveOpen)
+   at System.IO.Compression.ZipArchive..ctor(Stream stream, ZipArchiveMode mode, Boolean leaveOpen, Encoding entryNameEncoding)
+   at Kudu.Services.Deployment.PushDeploymentController.&lt;&gt;c__DisplayClass23_0.&lt;LocalZipFetch&gt;b__1() in C:\__w\1\s\Kudu.Services\Deployment\PushDeploymentController.cs:line 902
+   at System.Threading.Tasks.Task.InnerInvoke()
+   at System.Threading.Tasks.Task.Execute()
+--- End of stack trace from previous location where exception was thrown ---
+   at System.Runtime.CompilerServices.TaskAwaiter.ThrowForNonSuccess(Task task)
+   at System.Runtime.CompilerServices.TaskAwaiter.HandleNonSuccessAndDebuggerNotification(Task task)
+   at Kudu.Services.Deployment.PushDeploymentController.&lt;LocalZipFetch&gt;d__23.MoveNext() in C:\__w\1\s\Kudu.Services\Deployment\PushDeploymentController.cs:line 908
+--- End of stack trace from previous location where exception was thrown ---
+   at System.Runtime.CompilerServices.TaskAwaiter.ThrowForNonSuccess(Task task)
+   at System.Runtime.CompilerServices.TaskAwaiter.HandleNonSuccessAndDebuggerNotification(Task task)
+   at Kudu.Services.Deployment.PushDeploymentController.&lt;LocalZipHandler&gt;d__18.MoveNext() in C:\__w\1\s\Kudu.Services\Deployment\PushDeploymentController.cs:line 676
+--- End of stack trace from previous location where exception was thrown ---
+   at System.Runtime.CompilerServices.TaskAwaiter.ThrowForNonSuccess(Task task)
+   at System.Runtime.CompilerServices.TaskAwaiter.HandleNonSuccessAndDebuggerNotification(Task task)
+   at Kudu.Core.Deployment.FetchDeploymentManager.&lt;PerformDeployment&gt;d__9.MoveNext()
+--- End of stack trace from previous location where exception was thrown ---
+   at System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw()
+   at Kudu.Core.Deployment.FetchDeploymentManager.&lt;PerformDeployment&gt;d__9.MoveNext()
+--- End of stack trace from previous location where exception was thrown ---
+   at System.Runtime.CompilerServices.TaskAwaiter.ThrowForNonSuccess(Task task)
+   at System.Runtime.CompilerServices.TaskAwaiter.HandleNonSuccessAndDebuggerNotification(Task task)
+   at Kudu.Core.Deployment.FetchDeploymentManager.&lt;&gt;c__DisplayClass8_0.&lt;&lt;FetchDeploy&gt;b__0&gt;d.MoveNext()
+--- End of stack trace from previous location where exception was thrown ---
+   at System.Runtime.CompilerServices.TaskAwaiter.ThrowForNonSuccess(Task task)
+   at System.Runtime.CompilerServices.TaskAwaiter.HandleNonSuccessAndDebuggerNotification(Task task)
+   at Kudu.Contracts.Infrastructure.LockExtensions.&lt;LockOperationAsync&gt;d__7`1.MoveNext()
+--- End of stack trace from previous location where exception was thrown ---
+   at System.Runtime.CompilerServices.TaskAwaiter.ThrowForNonSuccess(Task task)
+   at System.Runtime.CompilerServices.TaskAwaiter.HandleNonSuccessAndDebuggerNotification(Task task)
+   at Kudu.Core.Deployment.FetchDeploymentManager.&lt;FetchDeploy&gt;d__8.MoveNext()
+--- End of stack trace from previous location where exception was thrown ---
+   at System.Runtime.CompilerServices.TaskAwaiter.ThrowForNonSuccess(Task task)
+   at System.Runtime.CompilerServices.TaskAwaiter.HandleNonSuccessAndDebuggerNotification(Task task)
+   at System.Runtime.CompilerServices.TaskAwaiter.ValidateEnd(Task task)
+   at Kudu.Services.Deployment.PushDeploymentController.&lt;PushDeployAsync&gt;d__16.MoveNext() in C:\__w\1\s\Kudu.Services\Deployment\PushDeploymentController.cs:line 544
+--- End of stack trace from previous location where exception was thrown ---
+   at System.Runtime.CompilerServices.TaskAwaiter.ThrowForNonSuccess(Task task)
+   at System.Runtime.CompilerServices.TaskAwaiter.HandleNonSuccessAndDebuggerNotification(Task task)
+   at System.Runtime.CompilerServices.TaskAwaiter.ValidateEnd(Task task)
+   at Kudu.Services.Deployment.PushDeploymentController.&lt;OneDeploy&gt;d__14.MoveNext() in C:\__w\1\s\Kudu.Services\Deployment\PushDeploymentController.cs:line 434
+--- End of stack trace from previous location where exception was thrown ---
+   at System.Runtime.CompilerServices.TaskAwaiter.ThrowForNonSuccess(Task task)
+   at System.Runtime.CompilerServices.TaskAwaiter.HandleNonSuccessAndDebuggerNotification(Task task)
+   at System.Threading.Tasks.TaskHelpersExtensions.&lt;CastToObject&gt;d__3`1.MoveNext()
+--- End of stack trace from previous location where exception was thrown ---
+   at System.Runtime.CompilerServices.TaskAwaiter.ThrowForNonSuccess(Task task)
+   at System.Runtime.CompilerServices.TaskAwaiter.HandleNonSuccessAndDebuggerNotification(Task task)
+   at System.Web.Http.Controllers.ApiControllerActionInvoker.&lt;InvokeActionAsyncCore&gt;d__0.MoveNext()
+--- End of stack trace from previous location where exception was thrown ---
+   at System.Runtime.CompilerServices.TaskAwaiter.ThrowForNonSuccess(Task task)
+   at System.Runtime.CompilerServices.TaskAwaiter.HandleNonSuccessAndDebuggerNotification(Task task)
+   at System.Web.Http.Filters.ActionFilterAttribute.&lt;CallOnActionExecutedAsync&gt;d__5.MoveNext()
+--- End of stack trace from previous location where exception was thrown ---
+   at System.Web.Http.Filters.ActionFilterAttribute.&lt;CallOnActionExecutedAsync&gt;d__5.MoveNext()
+--- End of stack trace from previous location where exception was thrown ---
+   at System.Runtime.CompilerServices.TaskAwaiter.ThrowForNonSuccess(Task task)
+   at System.Runtime.CompilerServices.TaskAwaiter.HandleNonSuccessAndDebuggerNotification(Task task)
+   at System.Web.Http.Filters.ActionFilterAttribute.&lt;ExecuteActionFilterAsyncCore&gt;d__0.MoveNext()
+--- End of stack trace from previous location where exception was thrown ---
+   at System.Runtime.CompilerServices.TaskAwaiter.ThrowForNonSuccess(Task task)
+   at System.Runtime.CompilerServices.TaskAwaiter.HandleNonSuccessAndDebuggerNotification(Task task)
+   at System.Web.Http.Filters.ActionFilterAttribute.&lt;CallOnActionExecutedAsync&gt;d__5.MoveNext()
+--- End of stack trace from previous location where exception was thrown ---
+   at System.Web.Http.Filters.ActionFilterAttribute.&lt;CallOnActionExecutedAsync&gt;d__5.MoveNext()
+--- End of stack trace from previous location where exception was thrown ---
+   at System.Runtime.CompilerServices.TaskAwaiter.ThrowForNonSuccess(Task task)
+   at System.Runtime.CompilerServices.TaskAwaiter.HandleNonSuccessAndDebuggerNotification(Task task)
+   at System.Web.Http.Filters.ActionFilterAttribute.&lt;ExecuteActionFilterAsyncCore&gt;d__0.MoveNext()
+--- End of stack trace from previous location where exception was thrown ---
+   at System.Runtime.CompilerServices.TaskAwaiter.ThrowForNonSuccess(Task task)
+   at System.Runtime.CompilerServices.TaskAwaiter.HandleNonSuccessAndDebuggerNotification(Task task)
+   at System.Web.Http.Controllers.ActionFilterResult.&lt;ExecuteAsync&gt;d__2.MoveNext()
+--- End of stack trace from previous location where exception was thrown ---
+   at System.Runtime.CompilerServices.TaskAwaiter.ThrowForNonSuccess(Task task)
+   at System.Runtime.CompilerServices.TaskAwaiter.HandleNonSuccessAndDebuggerNotification(Task task)
+   at System.Web.Http.Controllers.ExceptionFilterResult.&lt;ExecuteAsync&gt;d__0.MoveNext()" /><!-- duration: 0ms -->
+  <step title="Outgoing response" date="2025-11-29T02:30:18.606" type="response" statusCode="500" statusText="Internal Server Error" Server="Microsoft-IIS/10.0" x-ms-request-id="50edc28e-cccb-11f0-8215-e02e0bc384b1" Cache-Control="private" X-AspNet-Version="4.0.30319" Content-Type="application/json; charset=utf-8" /><!-- duration: 0ms -->
+</step><!-- duration: 11594ms -->

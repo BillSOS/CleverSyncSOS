@@ -1,0 +1,9 @@
+@page "/signin-clever"
+@using Microsoft.AspNetCore.Authentication
+@{
+    // This will trigger the OAuth challenge and redirect to Clever
+    await HttpContext.ChallengeAsync("Clever", new AuthenticationProperties
+    {
+        RedirectUri = "/"
+    });
+}

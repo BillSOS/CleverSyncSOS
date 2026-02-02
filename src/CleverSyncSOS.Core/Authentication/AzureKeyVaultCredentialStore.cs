@@ -49,64 +49,49 @@ public class AzureKeyVaultCredentialStore : ICredentialStore
     }
 
     /// <summary>
-    /// Retrieves the Clever API Client ID from Azure Key Vault.
-    /// Source: FR-002 - Store Client ID in Azure Key Vault
+    /// Retrieves a global system-wide secret by functional name.
+    /// Format: {functionalName}
     /// </summary>
-    public async Task<string> GetClientIdAsync(CancellationToken cancellationToken = default)
+    public async Task<string> GetGlobalSecretAsync(string functionalName, CancellationToken cancellationToken = default)
     {
         try
         {
-            // FR-010: Structured logging with contextual information
-            _logger.LogDebug("Retrieving Client ID from Key Vault secret: {SecretName}",
-                _configuration.ClientIdSecretName);
+            if (string.IsNullOrWhiteSpace(functionalName))
+                throw new ArgumentException("Functional name cannot be null or empty", nameof(functionalName));
+
+            _logger.LogDebug("Retrieving global secret from Key Vault: {SecretName}", functionalName);
 
             var secret = await _secretClient.GetSecretAsync(
-                _configuration.ClientIdSecretName,
+                functionalName,
                 cancellationToken: cancellationToken);
 
-            // FR-011: Audit Key Vault access (logged by Azure SDK telemetry)
-            _logger.LogDebug("Successfully retrieved Client ID from Key Vault");
+            _logger.LogDebug("Successfully retrieved global secret from Key Vault: {SecretName}", functionalName);
 
             return secret.Value.Value;
         }
         catch (Exception ex)
         {
-            // FR-010: Log errors without exposing sensitive data
-            _logger.LogError(ex, "Failed to retrieve Client ID from Key Vault. Secret: {SecretName}",
-                _configuration.ClientIdSecretName);
+            _logger.LogError(ex, "Failed to retrieve global secret from Key Vault. Secret: {SecretName}", functionalName);
             throw;
         }
     }
 
     /// <summary>
-    /// Retrieves the Clever API Client Secret from Azure Key Vault.
-    /// Source: FR-002 - Store Client Secret in Azure Key Vault
+    /// DEPRECATED: Use GetGlobalSecretAsync(KeyVaultSecretNaming.Global.ClientId) instead.
     /// </summary>
+    [Obsolete("Use GetGlobalSecretAsync(KeyVaultSecretNaming.Global.ClientId) instead")]
+    public async Task<string> GetClientIdAsync(CancellationToken cancellationToken = default)
+    {
+        return await GetGlobalSecretAsync(Configuration.KeyVaultSecretNaming.Global.ClientId, cancellationToken);
+    }
+
+    /// <summary>
+    /// DEPRECATED: Use GetGlobalSecretAsync(KeyVaultSecretNaming.Global.ClientSecret) instead.
+    /// </summary>
+    [Obsolete("Use GetGlobalSecretAsync(KeyVaultSecretNaming.Global.ClientSecret) instead")]
     public async Task<string> GetClientSecretAsync(CancellationToken cancellationToken = default)
     {
-        try
-        {
-            // FR-010: Structured logging - sanitize to prevent credential leakage
-            _logger.LogDebug("Retrieving Client Secret from Key Vault secret: {SecretName}",
-                _configuration.ClientSecretSecretName);
-
-            var secret = await _secretClient.GetSecretAsync(
-                _configuration.ClientSecretSecretName,
-                cancellationToken: cancellationToken);
-
-            // FR-011: Audit Key Vault access (logged by Azure SDK telemetry)
-            _logger.LogDebug("Successfully retrieved Client Secret from Key Vault");
-
-            // FR-011: Never log the actual secret value
-            return secret.Value.Value;
-        }
-        catch (Exception ex)
-        {
-            // FR-010: Log errors without exposing sensitive data
-            _logger.LogError(ex, "Failed to retrieve Client Secret from Key Vault. Secret: {SecretName}",
-                _configuration.ClientSecretSecretName);
-            throw;
-        }
+        return await GetGlobalSecretAsync(Configuration.KeyVaultSecretNaming.Global.ClientSecret, cancellationToken);
     }
 
     /// <summary>
@@ -132,5 +117,25 @@ public class AzureKeyVaultCredentialStore : ICredentialStore
             _logger.LogError(ex, "Failed to retrieve secret from Key Vault. Secret: {SecretName}", secretName);
             throw;
         }
+    }
+
+    /// <summary>
+    /// Retrieves a secret scoped to a specific district.
+    /// Format: {keyVaultDistrictPrefix}--{functionalName}
+    /// </summary>
+    public async Task<string> GetDistrictSecretAsync(string keyVaultDistrictPrefix, string functionalName, CancellationToken cancellationToken = default)
+    {
+        var secretName = Configuration.KeyVaultSecretNaming.BuildDistrictSecretName(keyVaultDistrictPrefix, functionalName);
+        return await GetSecretAsync(secretName, cancellationToken);
+    }
+
+    /// <summary>
+    /// Retrieves a secret scoped to a specific school.
+    /// Format: {keyVaultSchoolPrefix}--{functionalName}
+    /// </summary>
+    public async Task<string> GetSchoolSecretAsync(string keyVaultSchoolPrefix, string functionalName, CancellationToken cancellationToken = default)
+    {
+        var secretName = Configuration.KeyVaultSecretNaming.BuildSchoolSecretName(keyVaultSchoolPrefix, functionalName);
+        return await GetSecretAsync(secretName, cancellationToken);
     }
 }

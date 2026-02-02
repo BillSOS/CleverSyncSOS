@@ -1,0 +1,19 @@
+<step title="Incoming Request" date="2025-11-30T20:13:46.646" instance="eef76b" url="/api/zipdeploy?isAsync=true" method="POST" type="request" pid="4188,2,57" Cache-Control="no-cache" Content-Length="9138682" Content-Type="application/octet-stream" Accept="*/*" Accept-Encoding="gzip, deflate" Authorization="Bas..." Host="cleversyncsos.scm.azurewebsites.net" User-Agent="AZURECLI/2.79.0 (MSI)" x-ms-client-request-id="11800318-ce29-11f0-8679-e02e0bc384b1" X-ARR-LOG-ID="11800318-ce29-11f0-8679-e02e0bc384b1" CLIENT-IP="208.102.8.31:55477" X-SITE-DEPLOYMENT-ID="CleverSyncSOS" WAS-DEFAULT-HOSTNAME="cleversyncsos.scm.azurewebsites.net" X-Forwarded-Proto="https" X-AppService-Proto="https" X-Forwarded-TlsVersion="1.3" X-WAWS-Unencoded-URL="/api/zipdeploy?isAsync=true" >
+  <step title="Cleanup Xml Logs" date="2025-11-30T20:13:46.646" /><!-- duration: 16ms -->
+  <step title="ZipPushDeploy" date="2025-11-30T20:13:46.817" >
+    <step title="ZipDeploy. Extract zip. " date="2025-11-30T20:13:46.833" /><!-- duration: 0ms -->
+    <step title="Starting PushDeployAsync" date="2025-11-30T20:13:46.833" /><!-- duration: 0ms -->
+    <step title="Updating shutdown sentinel last write time" date="2025-11-30T20:13:46.911" SemaphoreCount="7" /><!-- duration: 0ms -->
+    <step title="LockFile &apos;C:\home\site\locks\deployments.lock&apos; acquired" date="2025-11-30T20:13:46.927" /><!-- duration: 0ms -->
+    <step title="Saving request content to C:\local\Temp\zipdeploy\0m4ua4st.zip" date="2025-11-30T20:13:46.942" >
+      <step title="Total 9,138,682 bytes written to C:\local\Temp\zipdeploy\0m4ua4st.zip" date="2025-11-30T20:13:47.239" /><!-- duration: 18ms -->
+    </step><!-- duration: 315ms -->
+    <step title="LockFile &apos;C:\home\site\locks\deployments.lock&apos; released" date="2025-11-30T20:13:47.271" /><!-- duration: 0ms -->
+    <step title="Deleting shutdown sentinel file" date="2025-11-30T20:13:47.271" SemaphoreCount="8" /><!-- duration: 0ms -->
+    <step title="Starting FetchDeploy" date="2025-11-30T20:13:47.271" /><!-- duration: 0ms -->
+    <step title="Start deployment in the background" date="2025-11-30T20:13:47.286" >
+      <step title="Starting LocalZipFetch" date="2025-11-30T20:13:47.536" /><!-- duration: 16ms -->
+    </step><!-- duration: 1047ms -->
+  </step><!-- duration: 1531ms -->
+  <step title="Outgoing response" date="2025-11-30T20:13:51.850" type="response" statusCode="202" statusText="Accepted" Server="Microsoft-IIS/10.0" x-ms-request-id="11800318-ce29-11f0-8679-e02e0bc384b1" Retry-After="30" Cache-Control="private" X-AspNet-Version="4.0.30319" Location="https://cleversyncsos.scm.azurewebsites.net/api/deployments/latest?deployer=ZipDeploy&amp;time=2025-11-30_20-13-48Z" /><!-- duration: 20ms -->
+</step><!-- duration: 5234ms -->

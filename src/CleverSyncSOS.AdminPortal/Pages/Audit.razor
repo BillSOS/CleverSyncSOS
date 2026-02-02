@@ -1,0 +1,305 @@
+@page "/audit"
+@attribute [Authorize(Policy = "SuperAdmin")]
+@using CleverSyncSOS.Core.Database.SessionDb
+@using CleverSyncSOS.Core.Database.SessionDb.Entities
+@using Microsoft.EntityFrameworkCore
+@inject SessionDbContext DbContext
+
+<PageTitle>Audit Logs - CleverSync Admin</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="d-flex align-items-center">
+            <img src="favicon.png" alt="CleverSync Logo" style="height: 2.5rem; margin-right: 1rem;" />
+            <h1 class="mb-0">Audit Logs</h1>
+        </div>
+        <button class="btn btn-primary" @onclick="RefreshLogs">
+            <i class="oi oi-reload"></i> Refresh
+        </button>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title">Filters</h5>
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label for="actionFilter" class="form-label">Action</label>
+                    <select class="form-select" id="actionFilter" @bind="_actionFilter" @bind:after="ApplyFilters">
+                        <option value="">All Actions</option>
+                        <option value="CleverLogin">Clever Login</option>
+                        <option value="BypassLogin">Bypass Login</option>
+                        <option value="BypassLoginFailed">Bypass Login Failed</option>
+                        <option value="BypassLoginError">Bypass Login Error</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="successFilter" class="form-label">Status</label>
+                    <select class="form-select" id="successFilter" @bind="_successFilter" @bind:after="ApplyFilters">
+                        <option value="">All</option>
+                        <option value="true">Success</option>
+                        <option value="false">Failed</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="userFilter" class="form-label">User</label>
+                    <input type="text" class="form-control" id="userFilter" placeholder="Email or identifier"
+                           @bind="_userFilter" @bind:after="ApplyFilters" />
+                </div>
+                <div class="col-md-3">
+                    <label for="ipFilter" class="form-label">IP Address</label>
+                    <input type="text" class="form-control" id="ipFilter" placeholder="IP address"
+                           @bind="_ipFilter" @bind:after="ApplyFilters" />
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="text-center my-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2 text-muted">Loading audit logs...</p>
+        </div>
+    }
+    else if (_error != null)
+    {
+        <div class="alert alert-danger" role="alert">
+            <h4 class="alert-heading">Error</h4>
+            <p>@_error</p>
+            <button class="btn btn-sm btn-outline-danger" @onclick="LoadLogs">Try Again</button>
+        </div>
+    }
+    else if (_logs == null || !_logs.Any())
+    {
+        <div class="alert alert-info" role="alert">
+            <h4 class="alert-heading">No Audit Logs Found</h4>
+            <p>No audit logs match the current filters.</p>
+        </div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Action</th>
+                        <th>User</th>
+                        <th>IP Address</th>
+                        <th>Status</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var log in _logs)
+                    {
+                        <tr class="@(log.Success ? "" : "table-danger")">
+                            <td class="text-nowrap small">
+                                @FormatLocalTime(log.Timestamp, log.User?.School?.District?.LocalTimeZone ?? log.User?.District?.LocalTimeZone, "yyyy-MM-dd HH:mm:ss")
+                            </td>
+                            <td>
+                                <span class="badge @GetActionBadgeClass(log.Action)">
+                                    @log.Action
+                                </span>
+                            </td>
+                            <td>@(log.UserIdentifier ?? log.UserId?.ToString() ?? "Unknown")</td>
+                            <td class="text-muted small">@log.IpAddress</td>
+                            <td>
+                                @if (log.Success)
+                                {
+                                    <span class="badge bg-success">Success</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-danger">Failed</span>
+                                }
+                            </td>
+                            <td class="small text-muted">
+                                @if (!string.IsNullOrEmpty(log.Details))
+                                {
+                                    <span>@log.Details</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="d-flex justify-content-between align-items-center mt-3">
+            <p class="text-muted mb-0">
+                Showing @_logs.Count of @_totalCount log entries
+            </p>
+            @if (_logs.Count < _totalCount)
+            {
+                <button class="btn btn-outline-primary btn-sm" @onclick="LoadMoreLogs">
+                    Load More
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private List<AuditLog>? _logs;
+    private bool _loading = true;
+    private string? _error;
+    private int _totalCount;
+    private int _pageSize = 50;
+    private int _currentPage = 1;
+
+    // Filters
+    private string _actionFilter = "";
+    private string _successFilter = "";
+    private string _userFilter = "";
+    private string _ipFilter = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadLogs();
+    }
+
+    private async Task LoadLogs()
+    {
+        _loading = true;
+        _error = null;
+        _currentPage = 1;
+
+        try
+        {
+            var query = DbContext.AuditLogs
+                .Include(a => a.User)
+                    .ThenInclude(u => u.School)
+                        .ThenInclude(s => s.District)
+                .Include(a => a.User)
+                    .ThenInclude(u => u.District)
+                .AsQueryable();
+
+            // Apply filters
+            query = ApplyQueryFilters(query);
+
+            _totalCount = await query.CountAsync();
+
+            _logs = await query
+                .OrderByDescending(a => a.Timestamp)
+                .Take(_pageSize)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to load audit logs: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task LoadMoreLogs()
+    {
+        if (_logs == null) return;
+
+        try
+        {
+            _currentPage++;
+
+            var query = DbContext.AuditLogs
+                .Include(a => a.User)
+                    .ThenInclude(u => u.School)
+                        .ThenInclude(s => s.District)
+                .Include(a => a.User)
+                    .ThenInclude(u => u.District)
+                .AsQueryable();
+
+            query = ApplyQueryFilters(query);
+
+            var moreLogs = await query
+                .OrderByDescending(a => a.Timestamp)
+                .Skip(_pageSize * (_currentPage - 1))
+                .Take(_pageSize)
+                .ToListAsync();
+
+            _logs.AddRange(moreLogs);
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to load more logs: {ex.Message}";
+        }
+    }
+
+    private IQueryable<AuditLog> ApplyQueryFilters(IQueryable<AuditLog> query)
+    {
+        if (!string.IsNullOrWhiteSpace(_actionFilter))
+        {
+            query = query.Where(a => a.Action == _actionFilter);
+        }
+
+        if (!string.IsNullOrWhiteSpace(_successFilter))
+        {
+            var success = bool.Parse(_successFilter);
+            query = query.Where(a => a.Success == success);
+        }
+
+        if (!string.IsNullOrWhiteSpace(_userFilter))
+        {
+            query = query.Where(a => a.UserIdentifier != null && a.UserIdentifier.Contains(_userFilter));
+        }
+
+        if (!string.IsNullOrWhiteSpace(_ipFilter))
+        {
+            query = query.Where(a => a.IpAddress != null && a.IpAddress.Contains(_ipFilter));
+        }
+
+        return query;
+    }
+
+    private async Task ApplyFilters()
+    {
+        await LoadLogs();
+    }
+
+    private async Task RefreshLogs()
+    {
+        await LoadLogs();
+    }
+
+    private string GetActionBadgeClass(string action)
+    {
+        return action switch
+        {
+            "CleverLogin" => "bg-primary",
+            "BypassLogin" => "bg-warning text-dark",
+            "BypassLoginFailed" => "bg-danger",
+            "BypassLoginError" => "bg-danger",
+            _ => "bg-secondary"
+        };
+    }
+
+    private DateTime ConvertToLocalTime(DateTime utcTime, string? timeZoneId)
+    {
+        if (string.IsNullOrEmpty(timeZoneId))
+        {
+            timeZoneId = "Eastern Standard Time"; // Default to Eastern if not specified
+        }
+
+        try
+        {
+            var timeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+            return TimeZoneInfo.ConvertTimeFromUtc(utcTime, timeZone);
+        }
+        catch
+        {
+            // If timezone conversion fails, fall back to Eastern Standard Time
+            var easternZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+            return TimeZoneInfo.ConvertTimeFromUtc(utcTime, easternZone);
+        }
+    }
+
+    private string FormatLocalTime(DateTime utcTime, string? timeZoneId, string format = "g")
+    {
+        var localTime = ConvertToLocalTime(utcTime, timeZoneId);
+        return localTime.ToString(format);
+    }
+}

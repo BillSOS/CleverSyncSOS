@@ -1,0 +1,87 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<entries>
+  <entry time="2025-11-20T18:13:16.3141627+00:00" type="Message">
+    <message>[Information] [user: $CleverSyncSOS] [f9c20e5b-f4e2-4716-9ad1-12d028c459e6] WebDeploy operation complete. Performing post-deployment operations.</message>
+  </entry>
+  <entry time="2025-11-20T18:13:16.8269245+00:00" type="Message">
+    <message>[Verbose] [user: $CleverSyncSOS] Skip function trigger and logicapp sync because function is not enabled.</message>
+  </entry>
+  <entry time="2025-11-20T18:13:16.8269245+00:00" type="Message">
+    <message>[Verbose] [user: $CleverSyncSOS] AutoSwap is not enabled</message>
+  </entry>
+  <entry time="2025-11-20T18:13:16.8269245+00:00" type="Message">
+    <message>[Information] [user: $CleverSyncSOS] [f9c20e5b-f4e2-4716-9ad1-12d028c459e6] Post-deployment operations complete.</message>
+  </entry>
+  <entry time="2025-11-25T19:37:59.2423743+00:00" type="Message">
+    <message>[Information] [user: $CleverSyncSOS] [0b9236df-b569-42d9-bd10-504eef3f3825] WebDeploy operation complete. Performing post-deployment operations.</message>
+  </entry>
+  <entry time="2025-11-25T19:37:59.8058021+00:00" type="Message">
+    <message>[Verbose] [user: $CleverSyncSOS] Skip function trigger and logicapp sync because function is not enabled.</message>
+  </entry>
+  <entry time="2025-11-25T19:37:59.8058021+00:00" type="Message">
+    <message>[Verbose] [user: $CleverSyncSOS] AutoSwap is not enabled</message>
+  </entry>
+  <entry time="2025-11-25T19:37:59.8058021+00:00" type="Message">
+    <message>[Information] [user: $CleverSyncSOS] [0b9236df-b569-42d9-bd10-504eef3f3825] Post-deployment operations complete.</message>
+  </entry>
+  <entry time="2025-11-26T23:46:11.2918502+00:00" type="Message">
+    <message>[Information] [user: $CleverSyncSOS] [745392be-3a63-4585-b7fc-1aee4cdfa0c1] WebDeploy operation complete. Performing post-deployment operations.</message>
+  </entry>
+  <entry time="2025-11-26T23:46:11.369979+00:00" type="Message">
+    <message>[Verbose] [user: $CleverSyncSOS] Skip function trigger and logicapp sync because function is not enabled.</message>
+  </entry>
+  <entry time="2025-11-26T23:46:11.369979+00:00" type="Message">
+    <message>[Verbose] [user: $CleverSyncSOS] AutoSwap is not enabled</message>
+  </entry>
+  <entry time="2025-11-26T23:46:11.369979+00:00" type="Message">
+    <message>[Information] [user: $CleverSyncSOS] [745392be-3a63-4585-b7fc-1aee4cdfa0c1] Post-deployment operations complete.</message>
+  </entry>
+  <entry time="2025-11-26T23:47:51.6565852+00:00" type="Message">
+    <message>[Information] [user: $CleverSyncSOS] [32ddc1fc-2e48-42cc-963a-bac0f5dbd613] WebDeploy operation complete. Performing post-deployment operations.</message>
+  </entry>
+  <entry time="2025-11-26T23:47:51.6680349+00:00" type="Message">
+    <message>[Verbose] [user: $CleverSyncSOS] Skip function trigger and logicapp sync because function is not enabled.</message>
+  </entry>
+  <entry time="2025-11-26T23:47:51.6680349+00:00" type="Message">
+    <message>[Verbose] [user: $CleverSyncSOS] AutoSwap is not enabled</message>
+  </entry>
+  <entry time="2025-11-26T23:47:51.6680349+00:00" type="Message">
+    <message>[Information] [user: $CleverSyncSOS] [32ddc1fc-2e48-42cc-963a-bac0f5dbd613] Post-deployment operations complete.</message>
+  </entry>
+  <entry time="2025-11-28T20:36:46.3954365+00:00" type="Message">
+    <message>[Information] [user: $CleverSyncSOS] [3ea7fa34-7d1a-49c3-92e9-651ab729d627] WebDeploy operation complete. Performing post-deployment operations.</message>
+  </entry>
+  <entry time="2025-11-28T20:36:47.4267652+00:00" type="Message">
+    <message>[Verbose] [user: $CleverSyncSOS] Skip function trigger and logicapp sync because function is not enabled.</message>
+  </entry>
+  <entry time="2025-11-28T20:36:47.4469415+00:00" type="Message">
+    <message>[Verbose] [user: $CleverSyncSOS] AutoSwap is not enabled</message>
+  </entry>
+  <entry time="2025-11-28T20:36:47.4469415+00:00" type="Message">
+    <message>[Information] [user: $CleverSyncSOS] [3ea7fa34-7d1a-49c3-92e9-651ab729d627] Post-deployment operations complete.</message>
+  </entry>
+  <entry time="2025-11-29T00:40:49.2374874+00:00" type="Message">
+    <message>[Information] [user: $CleverSyncSOS] [d948cd38-3484-449c-9dfb-c565770ece5b] WebDeploy operation complete. Performing post-deployment operations.</message>
+  </entry>
+  <entry time="2025-11-29T00:40:50.5206192+00:00" type="Message">
+    <message>[Verbose] [user: $CleverSyncSOS] Skip function trigger and logicapp sync because function is not enabled.</message>
+  </entry>
+  <entry time="2025-11-29T00:40:50.5506392+00:00" type="Message">
+    <message>[Verbose] [user: $CleverSyncSOS] AutoSwap is not enabled</message>
+  </entry>
+  <entry time="2025-11-29T00:40:50.5506392+00:00" type="Message">
+    <message>[Information] [user: $CleverSyncSOS] [d948cd38-3484-449c-9dfb-c565770ece5b] Post-deployment operations complete.</message>
+  </entry>
+  <entry time="2025-11-29T00:46:10.2248114Z" type="Message">
+    <message>[Information] [user: $CleverSyncSOS] [68da339d-d743-4446-bd19-5d63694de13b] WebDeploy operation complete. Performing post-deployment operations.</message>
+  </entry>
+  <entry time="2025-11-29T00:46:10.2442878Z" type="Message">
+    <message>[Verbose] [user: $CleverSyncSOS] Skip function trigger and logicapp sync because function is not enabled.</message>
+  </entry>
+  <entry time="2025-11-29T00:46:10.2442878Z" type="Message">
+    <message>[Verbose] [user: $CleverSyncSOS] AutoSwap is not enabled</message>
+  </entry>
+  <entry time="2025-11-29T00:46:10.2442878Z" type="Message">
+    <message>[Information] [user: $CleverSyncSOS] [68da339d-d743-4446-bd19-5d63694de13b] Post-deployment operations complete.</message>
+  </entry>
+</entries>

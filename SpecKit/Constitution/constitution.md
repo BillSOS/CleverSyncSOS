@@ -37,7 +37,7 @@ Primary users are SOS technical staff responsible for deploying, configuring, an
 2. **Scalability**: Supports multiple schools per district via dynamic Azure Functions.
 3. **Isolation**: Each school database is separate; shared code runs from centralized function apps.
 4. **Observability**: Logs are centralized using Azure Application Insights and follow Azure best practices.
-5. **Configurability**: Synchronization intervals and retry behavior must be externally configurable.
+5. **Configurability**: Synchronization intervals and retry behavior must be externally configurable via Azure Function App settings or Azure Key Vault (for sensitive values).
 6. **Compatibility**: Maintain alignment with the latest Clever API and handle versioning and rate limits gracefully.
 
 ## Technical Foundation
@@ -56,10 +56,11 @@ Primary users are SOS technical staff responsible for deploying, configuring, an
 
 - Follow .NET coding conventions and async patterns.
 - Use dependency injection for all services and configuration.
-- Store configuration in Azure App Configuration or secure settings.
+- Store configuration in Azure Function App settings (non-sensitive) and Azure Key Vault (sensitive values).
 - Write automated tests for core sync logic and error handling.
 - Use EF Core for all data access.
 - Ensure logs are contextual and actionable.
+- **Database Changes**: Prefer manual SQL scripts over EF Core migrations. When database schema changes are needed, create SQL scripts for manual execution rather than generating EF migrations.
 
 ## Maintenance & Operations
 

@@ -1,0 +1,180 @@
+@page "/admin/bypass-login"
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Authentication.Cookies
+@using CleverSyncSOS.AdminPortal.Services
+@inject IBypassAuthenticationService BypassAuthService
+@inject IAuditLogService AuditLogService
+@inject NavigationManager NavigationManager
+@inject IHttpContextAccessor HttpContextAccessor
+@inject IJSRuntime JS
+
+<PageTitle>Bypass Login - CleverSync Admin</PageTitle>
+
+<style>
+    .signing-in {
+        cursor: wait !important;
+    }
+    .signing-in * {
+        cursor: wait !important;
+    }
+</style>
+
+<div class="container mt-5 @(_isSubmitting ? "signing-in" : "")">
+    <div class="row justify-content-center">
+        <div class="col-md-5">
+            <div class="card">
+                <div class="card-body">
+                    <h2 class="card-title text-center mb-4">Super Admin Access</h2>
+
+                    @if (!string.IsNullOrEmpty(_errorMessage))
+                    {
+                        <div class="alert alert-danger" role="alert">
+                            @_errorMessage
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrEmpty(_successMessage))
+                    {
+                        <div class="alert alert-success" role="alert">
+                            @_successMessage
+                        </div>
+                    }
+
+                    <EditForm Model="@_model" OnValidSubmit="HandleBypassLogin">
+                        <DataAnnotationsValidator />
+
+                        <div class="mb-3">
+                            <label for="password" class="form-label">Password</label>
+                            <InputText type="password"
+                                       class="form-control"
+                                       id="password"
+                                       @bind-Value="_model.Password"
+                                       placeholder="Enter Super Admin password" />
+                            <ValidationMessage For="@(() => _model.Password)" />
+                        </div>
+
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-primary" disabled="@_isSubmitting">
+                                @if (_isSubmitting)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                                    <span>Signing in...</span>
+                                }
+                                else
+                                {
+                                    <span>Sign In</span>
+                                }
+                            </button>
+                        </div>
+                    </EditForm>
+
+                    <hr class="my-4">
+
+                    <div class="text-center">
+                        <small class="text-muted">
+                            <a href="/login">Back to main login</a>
+                        </small>
+                    </div>
+                </div>
+            </div>
+
+            <div class="alert alert-warning mt-3" role="alert">
+                <small>
+                    <strong>Note:</strong> This login method is for Super Administrators only.
+                    Login attempts are rate-limited and logged for security.
+                </small>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private BypassLoginModel _model = new();
+    private string? _errorMessage;
+    private string? _successMessage;
+    private bool _isSubmitting;
+
+    private async Task HandleBypassLogin()
+    {
+        _isSubmitting = true;
+        _errorMessage = null;
+        _successMessage = null;
+
+        var httpContext = HttpContextAccessor.HttpContext;
+        var ipAddress = httpContext?.Connection.RemoteIpAddress?.ToString();
+        var userAgent = httpContext?.Request.Headers["User-Agent"].ToString();
+
+        try
+        {
+            var isValid = await BypassAuthService.ValidatePasswordAsync(_model.Password);
+
+            if (!isValid)
+            {
+                await AuditLogService.LogAuthenticationEventAsync(
+                    action: "BypassLoginFailed",
+                    success: false,
+                    userIdentifier: "Super Admin",
+                    details: "Invalid password provided",
+                    ipAddress: ipAddress,
+                    userAgent: userAgent);
+
+                _errorMessage = "Invalid password. Please try again.";
+                _isSubmitting = false;
+                _model.Password = string.Empty;
+                return;
+            }
+
+            // Submit a native POST so the server can call HttpContext.SignInAsync and set cookies.
+            // Include an antiforgery token if your endpoint requires one.
+            // Don't reset _isSubmitting here - the page will navigate away after form submit
+            await JS.InvokeVoidAsync("formPost", "/admin/bypass-login-submit", new { password = _model.Password });
+            // Keep showing spinner/wait cursor until redirect completes
+            return;
+        }
+        catch (Exception ex)
+        {
+            await AuditLogService.LogAuthenticationEventAsync(
+                action: "BypassLoginError",
+                success: false,
+                userIdentifier: "Super Admin",
+                details: $"Error: {ex.Message}",
+                ipAddress: ipAddress,
+                userAgent: userAgent);
+
+            _errorMessage = "An error occurred during authentication. Please try again.";
+            Console.WriteLine($"Bypass login error: {ex}");
+            _isSubmitting = false;
+            _model.Password = string.Empty;
+        }
+    }
+
+    private class BypassLoginModel
+    {
+        public string Password { get; set; } = string.Empty;
+    }
+
+}
+
+<script>
+    window.formPost = function(url, data) {
+        // Set cursor to wait on entire document
+        document.body.style.cursor = 'wait';
+        document.documentElement.style.cursor = 'wait';
+
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = url;
+
+        for (const key in data) {
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = key;
+            input.value = data[key];
+            form.appendChild(input);
+        }
+
+        document.body.appendChild(form);
+        form.submit();
+    };
+</script>

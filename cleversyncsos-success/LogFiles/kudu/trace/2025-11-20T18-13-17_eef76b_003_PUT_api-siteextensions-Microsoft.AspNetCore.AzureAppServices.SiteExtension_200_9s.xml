@@ -1,0 +1,15 @@
+<step title="Incoming Request" date="2025-11-20T18:13:17.378" instance="eef76b" url="/api/siteextensions/Microsoft.AspNetCore.AzureAppServices.SiteExtension" method="PUT" type="request" pid="7912,2,9" Content-Length="0" Content-Type="application/json; charset=utf-8" Content-Encoding="utf-8" Accept-Encoding="gzip, deflate" Authorization="Bas..." Cookie="ARRAffinity=eef76bc7016e3795417723304454635e1de6050271109330ad17ec80dff7ecae; ARRAffinitySameSite=eef76bc7016e3795417723304454635e1de6050271109330ad17ec80dff7ecae" Host="cleversyncsos.scm.azurewebsites.net" If-Match="&quot;*&quot;" User-Agent="Visual-Studio/18.0.1+11217.181 WebToolsExtension/18.0.333.805" X-ARR-LOG-ID="980b7527-7ac4-4f6b-8e74-8500bc51c531" CLIENT-IP="208.102.8.31:57614" X-SITE-DEPLOYMENT-ID="CleverSyncSOS" WAS-DEFAULT-HOSTNAME="cleversyncsos.scm.azurewebsites.net" X-Forwarded-Proto="https" X-AppService-Proto="https" X-Forwarded-TlsVersion="1.3" X-WAWS-Unencoded-URL="/api/siteextensions/Microsoft.AspNetCore.AzureAppServices.SiteExtension" >
+  <step title="Cleanup Xml Logs" date="2025-11-20T18:13:17.389" /><!-- duration: 0ms -->
+  <step title="Installing Microsoft.AspNetCore.AzureAppServices.SiteExtension, version:  from feed: , packageUri: " date="2025-11-20T18:13:18.455" /><!-- duration: 0ms -->
+  <step title="Installing &apos;Microsoft.AspNetCore.AzureAppServices.SiteExtension&apos; version &apos;&apos; from &apos;&apos;" date="2025-11-20T18:13:19.171" >
+    <step title="Site Extension Microsoft.AspNetCore.AzureAppServices.SiteExtension remote version is 10.0.0" date="2025-11-20T18:13:21.905" /><!-- duration: 20ms -->
+    <step title="FeedExtensionsV2 search package by id: Microsoft.AspNetCore.AzureAppServices.SiteExtension and version: ." date="2025-11-20T18:13:21.925" /><!-- duration: 11ms -->
+    <step title="Install package: Microsoft.AspNetCore.AzureAppServices.SiteExtension." date="2025-11-20T18:13:21.936" >
+      <step title="Download site extension: Microsoft.AspNetCore.AzureAppServices.SiteExtension" date="2025-11-20T18:13:21.955" /><!-- duration: 3669ms -->
+      <step title="Check if applicationHost.xdt or scmApplicationHost.xdt file existed." date="2025-11-20T18:13:25.624" /><!-- duration: 16ms -->
+      <step title="Trigger site extension job" date="2025-11-20T18:13:25.640" /><!-- duration: 0ms -->
+    </step><!-- duration: 3829ms -->
+    <step title="Update arm settings for Microsoft.AspNetCore.AzureAppServices.SiteExtension installation. Status: OK" date="2025-11-20T18:13:25.969" /><!-- duration: 202ms -->
+  </step><!-- duration: 7031ms -->
+  <step title="Outgoing response" date="2025-11-20T18:13:26.360" type="response" statusCode="200" statusText="OK" Server="Microsoft-IIS/10.0" x-ms-request-id="980b7527-7ac4-4f6b-8e74-8500bc51c531" Cache-Control="private" X-AspNet-Version="4.0.30319" Content-Type="application/json; charset=utf-8" /><!-- duration: 20ms -->
+</step><!-- duration: 9002ms -->

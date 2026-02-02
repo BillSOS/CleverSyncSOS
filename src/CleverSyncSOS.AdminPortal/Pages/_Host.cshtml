@@ -1,0 +1,23 @@
+﻿@page "/"
+@namespace CleverSyncSOS.AdminPortal.Pages
+@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CleverSync Admin</title>
+    <base href="~/" />
+    <link rel="shortcut icon" href="favicon.png" type="image/png" />
+    <link href="css/bootstrap/bootstrap.min.css" rel="stylesheet" />
+    <link href="css/site.css" rel="stylesheet" />
+    <!-- Open Iconic used by NavMenu (oi oi-*) -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/open-iconic/1.1.1/font/css/open-iconic-bootstrap.min.css" rel="stylesheet" />
+</head>
+<body>
+    <component type="typeof(App)" render-mode="ServerPrerendered" />
+
+    <script src="_framework/blazor.server.js"></script>
+    <script src="js/sessionTimeout.js"></script>
+</body>
+</html>

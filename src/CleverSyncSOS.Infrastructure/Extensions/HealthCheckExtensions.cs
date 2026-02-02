@@ -32,7 +32,15 @@ public static class HealthCheckExtensions
             .AddCheck<CleverAuthenticationHealthCheck>(
                 name: "clever_authentication",
                 failureStatus: HealthStatus.Unhealthy,
-                tags: new[] { "clever", "authentication", "ready" });
+                tags: new[] { "clever", "authentication", "ready" })
+            .AddCheck<CleverEventsHealthCheck>(
+                name: "clever_events_api",
+                failureStatus: HealthStatus.Degraded, // Degraded, not Unhealthy - sync still works without Events API
+                tags: new[] { "clever", "events", "sync" })
+            .AddCheck<OrphanDetectionHealthCheck>(
+                name: "orphan_detection",
+                failureStatus: HealthStatus.Degraded, // Degraded - orphans don't break sync but indicate data issues
+                tags: new[] { "sync", "data", "orphans" });
     }
 
     /// <summary>

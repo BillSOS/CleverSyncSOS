@@ -1,0 +1,533 @@
+@page "/admin/sync-schedules"
+@attribute [Authorize(Policy = "SuperAdmin")]
+@using CleverSyncSOS.Core.Database.SessionDb
+@using CleverSyncSOS.Core.Database.SessionDb.Entities
+@using CleverSyncSOS.Core.Services
+@using Microsoft.EntityFrameworkCore
+@inject ISyncScheduleService ScheduleService
+@inject SessionDbContext SessionDb
+@inject ILogger<SyncSchedules> Logger
+
+<PageTitle>Sync Schedules - CleverSync Admin</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="d-flex align-items-center">
+            <img src="favicon.png" alt="CleverSync Logo" style="height: 2.5rem; margin-right: 1rem;" />
+            <h1 class="mb-0">Sync Schedules</h1>
+        </div>
+        <button class="btn btn-primary" @onclick="ShowAddModal">
+            <i class="oi oi-plus"></i> Add Schedule
+        </button>
+    </div>
+
+    <div class="alert alert-info mb-4">
+        <i class="oi oi-info"></i>
+        <strong>How it works:</strong> The sync timer checks every 5 minutes if any schedule is due to run.
+        Times are displayed and entered in the district's local timezone.
+    </div>
+
+    @if (_loading)
+    {
+        <div class="text-center my-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2 text-muted">Loading schedules...</p>
+        </div>
+    }
+    else if (_error != null)
+    {
+        <div class="alert alert-danger" role="alert">
+            <h4 class="alert-heading">Error</h4>
+            <p>@_error</p>
+            <button class="btn btn-sm btn-outline-danger" @onclick="LoadSchedules">Try Again</button>
+        </div>
+    }
+    else
+    {
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Configured Schedules</h5>
+            </div>
+            <div class="card-body">
+                @if (_schedules.Count == 0)
+                {
+                    <div class="text-center text-muted py-4">
+                        <i class="oi oi-clock" style="font-size: 3rem;"></i>
+                        <p class="mt-3">No sync schedules configured yet.</p>
+                        <button class="btn btn-primary" @onclick="ShowAddModal">Add Your First Schedule</button>
+                    </div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>District</th>
+                                    <th>Time (Local)</th>
+                                    <th>Days</th>
+                                    <th>Status</th>
+                                    <th>Next Run</th>
+                                    <th>Last Run</th>
+                                    <th class="text-end">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var schedule in _schedules)
+                                {
+                                    <tr class="@(schedule.IsEnabled ? "" : "table-secondary")">
+                                        <td>@schedule.ScheduleName</td>
+                                        <td>@(schedule.District?.Name ?? "Unknown")</td>
+                                        <td>
+                                            <span class="badge bg-info">@schedule.DisplayTime</span>
+                                        </td>
+                                        <td>@schedule.DisplayDays</td>
+                                        <td>
+                                            @if (schedule.IsEnabled)
+                                            {
+                                                <span class="badge bg-success">Active</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-secondary">Paused</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            @{
+                                                var nextRun = ScheduleService.GetNextRunTime(schedule);
+                                            }
+                                            @if (nextRun.HasValue)
+                                            {
+                                                <span class="text-muted">@nextRun.Value.ToString("ddd, MMM d @ h:mm tt")</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">-</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            @if (schedule.LastTriggeredUtc.HasValue)
+                                            {
+                                                <span class="text-muted">@schedule.LastTriggeredUtc.Value.ToLocalTime().ToString("MMM d, h:mm tt")</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">Never</span>
+                                            }
+                                        </td>
+                                        <td class="text-end">
+                                            <div class="btn-group btn-group-sm">
+                                                <button class="btn btn-outline-primary" @onclick="() => ShowEditModal(schedule)"
+                                                        title="Edit">
+                                                    <i class="oi oi-pencil"></i>
+                                                </button>
+                                                <button class="btn @(schedule.IsEnabled ? "btn-outline-warning" : "btn-outline-success")"
+                                                        @onclick="() => ToggleSchedule(schedule)"
+                                                        title="@(schedule.IsEnabled ? "Pause" : "Resume")">
+                                                    <i class="oi @(schedule.IsEnabled ? "oi-media-pause" : "oi-media-play")"></i>
+                                                </button>
+                                                <button class="btn btn-outline-danger" @onclick="() => ConfirmDelete(schedule)"
+                                                        title="Delete">
+                                                    <i class="oi oi-trash"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+<!-- Add/Edit Modal -->
+@if (_showModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@(_isEditing ? "Edit Schedule" : "Add Schedule")</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Schedule Name</label>
+                        <input type="text" class="form-control" @bind="_editSchedule.ScheduleName"
+                               placeholder="e.g., Morning Sync, Nightly Sync" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">District</label>
+                        <select class="form-select" @bind="_editSchedule.DistrictId" disabled="@_isEditing">
+                            @foreach (var district in _districts)
+                            {
+                                <option value="@district.DistrictId">@district.Name</option>
+                            }
+                        </select>
+                        @if (_isEditing)
+                        {
+                            <small class="text-muted">District cannot be changed after creation.</small>
+                        }
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Time (Local)</label>
+                        <div class="row g-2">
+                            <div class="col-4">
+                                <select class="form-select" @bind="_selectedHour12">
+                                    @for (int h = 1; h <= 12; h++)
+                                    {
+                                        <option value="@h">@h</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-1 text-center pt-2">:</div>
+                            <div class="col-4">
+                                <select class="form-select" @bind="_selectedMinute">
+                                    @for (int m = 0; m < 60; m += 5)
+                                    {
+                                        <option value="@m">@m.ToString("D2")</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-3">
+                                <select class="form-select" @bind="_selectedAmPm">
+                                    <option value="AM">AM</option>
+                                    <option value="PM">PM</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Run On</label>
+                        <div class="mb-2">
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="cbDaily"
+                                       checked="@_runDaily" @onchange="OnDailyChanged" />
+                                <label class="form-check-label" for="cbDaily">Every Day</label>
+                            </div>
+                        </div>
+                        @if (!_runDaily)
+                        {
+                            <div class="d-flex flex-wrap gap-2">
+                                @foreach (var day in _dayOptions)
+                                {
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="cb@day.Abbrev"
+                                               checked="@_selectedDays.Contains(day.Abbrev)"
+                                               @onchange="e => OnDayChanged(day.Abbrev, (bool)(e.Value ?? false))" />
+                                        <label class="form-check-label" for="cb@day.Abbrev">@day.Name</label>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="cbEnabled"
+                                   @bind="_editSchedule.IsEnabled" />
+                            <label class="form-check-label" for="cbEnabled">Enabled</label>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseModal">Cancel</button>
+                    <button type="button" class="btn btn-primary" @onclick="SaveSchedule" disabled="@_saving">
+                        @if (_saving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        @(_isEditing ? "Save Changes" : "Add Schedule")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Delete Confirmation Modal -->
+@if (_showDeleteConfirm)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Confirm Delete</h5>
+                    <button type="button" class="btn-close" @onclick="() => _showDeleteConfirm = false"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete the schedule "<strong>@_scheduleToDelete?.ScheduleName</strong>"?</p>
+                    <p class="text-danger mb-0">This action cannot be undone.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="() => _showDeleteConfirm = false">Cancel</button>
+                    <button type="button" class="btn btn-danger" @onclick="DeleteSchedule" disabled="@_saving">
+                        @if (_saving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<SyncSchedule> _schedules = new();
+    private List<District> _districts = new();
+    private bool _loading = true;
+    private string? _error;
+
+    // Modal state
+    private bool _showModal = false;
+    private bool _isEditing = false;
+    private bool _saving = false;
+    private SyncSchedule _editSchedule = new();
+
+    // Time picker state
+    private int _selectedHour12 = 6;
+    private int _selectedMinute = 0;
+    private string _selectedAmPm = "AM";
+
+    // Days state
+    private bool _runDaily = true;
+    private HashSet<string> _selectedDays = new();
+    private readonly List<(string Abbrev, string Name)> _dayOptions = new()
+    {
+        ("Mon", "Mon"),
+        ("Tue", "Tue"),
+        ("Wed", "Wed"),
+        ("Thu", "Thu"),
+        ("Fri", "Fri"),
+        ("Sat", "Sat"),
+        ("Sun", "Sun")
+    };
+
+    // Delete confirmation
+    private bool _showDeleteConfirm = false;
+    private SyncSchedule? _scheduleToDelete;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSchedules();
+        await LoadDistricts();
+    }
+
+    private async Task LoadSchedules()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            _schedules = await ScheduleService.GetAllSchedulesAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to load schedules: {ex.Message}";
+            Logger.LogError(ex, "Failed to load sync schedules");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task LoadDistricts()
+    {
+        try
+        {
+            _districts = await SessionDb.Districts.OrderBy(d => d.Name).ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load districts");
+        }
+    }
+
+    private void ShowAddModal()
+    {
+        _isEditing = false;
+        _editSchedule = new SyncSchedule
+        {
+            DistrictId = _districts.FirstOrDefault()?.DistrictId ?? 1,
+            IsEnabled = true
+        };
+        _selectedHour12 = 2;
+        _selectedMinute = 0;
+        _selectedAmPm = "AM";
+        _runDaily = true;
+        _selectedDays.Clear();
+        _showModal = true;
+    }
+
+    private void ShowEditModal(SyncSchedule schedule)
+    {
+        _isEditing = true;
+        _editSchedule = new SyncSchedule
+        {
+            SyncScheduleId = schedule.SyncScheduleId,
+            DistrictId = schedule.DistrictId,
+            ScheduleName = schedule.ScheduleName,
+            LocalHour = schedule.LocalHour,
+            LocalMinute = schedule.LocalMinute,
+            DaysOfWeek = schedule.DaysOfWeek,
+            IsEnabled = schedule.IsEnabled
+        };
+
+        // Convert 24-hour to 12-hour
+        _selectedHour12 = schedule.LocalHour == 0 ? 12 : (schedule.LocalHour > 12 ? schedule.LocalHour - 12 : schedule.LocalHour);
+        _selectedMinute = schedule.LocalMinute;
+        _selectedAmPm = schedule.LocalHour < 12 ? "AM" : "PM";
+
+        // Parse days
+        _runDaily = schedule.DaysOfWeek.Equals("Daily", StringComparison.OrdinalIgnoreCase);
+        _selectedDays.Clear();
+        if (!_runDaily)
+        {
+            foreach (var day in schedule.DaysOfWeek.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                _selectedDays.Add(day);
+            }
+        }
+
+        _showModal = true;
+    }
+
+    private void CloseModal()
+    {
+        _showModal = false;
+    }
+
+    private void OnDailyChanged(ChangeEventArgs e)
+    {
+        _runDaily = (bool)(e.Value ?? false);
+        if (_runDaily)
+        {
+            _selectedDays.Clear();
+        }
+    }
+
+    private void OnDayChanged(string day, bool selected)
+    {
+        if (selected)
+        {
+            _selectedDays.Add(day);
+        }
+        else
+        {
+            _selectedDays.Remove(day);
+        }
+    }
+
+    private async Task SaveSchedule()
+    {
+        _saving = true;
+
+        try
+        {
+            // Convert 12-hour to 24-hour
+            int hour24 = _selectedHour12;
+            if (_selectedAmPm == "AM" && hour24 == 12) hour24 = 0;
+            else if (_selectedAmPm == "PM" && hour24 != 12) hour24 += 12;
+
+            _editSchedule.LocalHour = hour24;
+            _editSchedule.LocalMinute = _selectedMinute;
+            _editSchedule.DaysOfWeek = _runDaily ? "Daily" : string.Join(",", _selectedDays.OrderBy(d => GetDayOrder(d)));
+
+            if (string.IsNullOrWhiteSpace(_editSchedule.ScheduleName))
+            {
+                _editSchedule.ScheduleName = $"Sync at {_editSchedule.DisplayTime}";
+            }
+
+            if (_isEditing)
+            {
+                await ScheduleService.UpdateScheduleAsync(_editSchedule);
+            }
+            else
+            {
+                _editSchedule.CreatedBy = "Super Admin";
+                await ScheduleService.CreateScheduleAsync(_editSchedule);
+            }
+
+            _showModal = false;
+            await LoadSchedules();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save schedule");
+            _error = $"Failed to save schedule: {ex.Message}";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task ToggleSchedule(SyncSchedule schedule)
+    {
+        try
+        {
+            await ScheduleService.ToggleScheduleAsync(schedule.SyncScheduleId);
+            await LoadSchedules();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to toggle schedule");
+            _error = $"Failed to toggle schedule: {ex.Message}";
+        }
+    }
+
+    private void ConfirmDelete(SyncSchedule schedule)
+    {
+        _scheduleToDelete = schedule;
+        _showDeleteConfirm = true;
+    }
+
+    private async Task DeleteSchedule()
+    {
+        if (_scheduleToDelete == null) return;
+
+        _saving = true;
+
+        try
+        {
+            await ScheduleService.DeleteScheduleAsync(_scheduleToDelete.SyncScheduleId);
+            _showDeleteConfirm = false;
+            _scheduleToDelete = null;
+            await LoadSchedules();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to delete schedule");
+            _error = $"Failed to delete schedule: {ex.Message}";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private int GetDayOrder(string day) => day switch
+    {
+        "Mon" => 1,
+        "Tue" => 2,
+        "Wed" => 3,
+        "Thu" => 4,
+        "Fri" => 5,
+        "Sat" => 6,
+        "Sun" => 7,
+        _ => 8
+    };
+}

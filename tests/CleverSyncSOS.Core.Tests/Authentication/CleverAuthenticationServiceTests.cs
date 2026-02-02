@@ -55,9 +55,9 @@ public class CleverAuthenticationServiceTests
     public async Task AuthenticateAsync_WithValidCredentials_ReturnsToken()
     {
         // Arrange
-        _mockCredentialStore.Setup(x => x.GetClientIdAsync(It.IsAny<CancellationToken>()))
+        _mockCredentialStore.Setup(x => x.GetGlobalSecretAsync(KeyVaultSecretNaming.Global.ClientId, It.IsAny<CancellationToken>()))
             .ReturnsAsync("test-client-id");
-        _mockCredentialStore.Setup(x => x.GetClientSecretAsync(It.IsAny<CancellationToken>()))
+        _mockCredentialStore.Setup(x => x.GetGlobalSecretAsync(KeyVaultSecretNaming.Global.ClientSecret, It.IsAny<CancellationToken>()))
             .ReturnsAsync("test-client-secret");
 
         var mockHttpMessageHandler = new Mock<HttpMessageHandler>();
@@ -103,7 +103,7 @@ public class CleverAuthenticationServiceTests
     public async Task AuthenticateAsync_OnFailure_TracksError()
     {
         // Arrange
-        _mockCredentialStore.Setup(x => x.GetClientIdAsync(It.IsAny<CancellationToken>()))
+        _mockCredentialStore.Setup(x => x.GetGlobalSecretAsync(KeyVaultSecretNaming.Global.ClientId, It.IsAny<CancellationToken>()))
             .ThrowsAsync(new Exception("Key Vault unavailable"));
 
         var service = new CleverAuthenticationService(
@@ -128,9 +128,9 @@ public class CleverAuthenticationServiceTests
     public async Task GetTokenAsync_WithValidCachedToken_ReturnsCachedToken()
     {
         // Arrange
-        _mockCredentialStore.Setup(x => x.GetClientIdAsync(It.IsAny<CancellationToken>()))
+        _mockCredentialStore.Setup(x => x.GetGlobalSecretAsync(KeyVaultSecretNaming.Global.ClientId, It.IsAny<CancellationToken>()))
             .ReturnsAsync("test-client-id");
-        _mockCredentialStore.Setup(x => x.GetClientSecretAsync(It.IsAny<CancellationToken>()))
+        _mockCredentialStore.Setup(x => x.GetGlobalSecretAsync(KeyVaultSecretNaming.Global.ClientSecret, It.IsAny<CancellationToken>()))
             .ReturnsAsync("test-client-secret");
 
         var mockHttpMessageHandler = new Mock<HttpMessageHandler>();
@@ -200,9 +200,9 @@ public class CleverAuthenticationServiceTests
     public async Task AuthenticateAsync_OnRateLimit_RetriesWithBackoff()
     {
         // Arrange
-        _mockCredentialStore.Setup(x => x.GetClientIdAsync(It.IsAny<CancellationToken>()))
+        _mockCredentialStore.Setup(x => x.GetGlobalSecretAsync(KeyVaultSecretNaming.Global.ClientId, It.IsAny<CancellationToken>()))
             .ReturnsAsync("test-client-id");
-        _mockCredentialStore.Setup(x => x.GetClientSecretAsync(It.IsAny<CancellationToken>()))
+        _mockCredentialStore.Setup(x => x.GetGlobalSecretAsync(KeyVaultSecretNaming.Global.ClientSecret, It.IsAny<CancellationToken>()))
             .ReturnsAsync("test-client-secret");
 
         var callCount = 0;

@@ -1,0 +1,53 @@
+2025-11-30 20:33:35.629 +00:00 [Error] CleverSyncSOS.Core.Database.SchoolDb.SchoolDatabaseConnectionFactory: Failed to create database context. Error Type: RequestFailedException, Message: RequestFailedException: A secret with (name/id) CityHigh--ConnectionString was not found in this key vault. If you recently deleted this secret you may be able to recover it using the correct recovery command. For help resolving this issue, please see https://go.microsoft.com/fwlink/?linkid=2125182
+Status: 404 (Not Found)
+ErrorCode: SecretNotFound
+
+Content:
+{"error":{"code":"SecretNotFound","message":"A secret with (name/id) CityHigh--ConnectionString was not found in this key vault. If you recently deleted this secret you may be able to recover it using the correct recovery command. For help resolving this issue, please see https://go.microsoft.com/fwlink/?linkid=2125182"}}
+
+Headers:
+Cache-Control: no-cache
+Pragma: no-cache
+x-ms-keyvault-region: eastus
+x-ms-client-request-id: 241f279a-6a8b-48b2-a333-ce4d22c9b4ca
+x-ms-request-id: 038c0258-1b08-4c88-a6ea-1e8e48a8d181
+x-ms-keyvault-service-version: 1.9.2889.1
+x-ms-keyvault-network-info: conn_type=Ipv4;addr=40.116.73.79;act_addr_fam=InterNetwork;
+x-ms-keyvault-rbac-assignment-id: REDACTED
+X-Content-Type-Options: REDACTED
+Strict-Transport-Security: REDACTED
+Date: Sun, 30 Nov 2025 20:33:35 GMT
+Content-Type: application/json; charset=utf-8
+Expires: -1
+Content-Length: 323
+, Context: School: City High School
+2025-11-30 20:33:35.711 +00:00 [Error] CleverSyncSOS.Core.Sync.SyncService: Failed to sync school 3
+Azure.RequestFailedException: A secret with (name/id) CityHigh--ConnectionString was not found in this key vault. If you recently deleted this secret you may be able to recover it using the correct recovery command. For help resolving this issue, please see https://go.microsoft.com/fwlink/?linkid=2125182
+Status: 404 (Not Found)
+ErrorCode: SecretNotFound
+
+Content:
+{"error":{"code":"SecretNotFound","message":"A secret with (name/id) CityHigh--ConnectionString was not found in this key vault. If you recently deleted this secret you may be able to recover it using the correct recovery command. For help resolving this issue, please see https://go.microsoft.com/fwlink/?linkid=2125182"}}
+
+Headers:
+Cache-Control: no-cache
+Pragma: no-cache
+x-ms-keyvault-region: eastus
+x-ms-client-request-id: 241f279a-6a8b-48b2-a333-ce4d22c9b4ca
+x-ms-request-id: 038c0258-1b08-4c88-a6ea-1e8e48a8d181
+x-ms-keyvault-service-version: 1.9.2889.1
+x-ms-keyvault-network-info: conn_type=Ipv4;addr=40.116.73.79;act_addr_fam=InterNetwork;
+x-ms-keyvault-rbac-assignment-id: REDACTED
+X-Content-Type-Options: REDACTED
+Strict-Transport-Security: REDACTED
+Date: Sun, 30 Nov 2025 20:33:35 GMT
+Content-Type: application/json; charset=utf-8
+Expires: -1
+Content-Length: 323
+
+   at Azure.Security.KeyVault.KeyVaultPipeline.SendRequestAsync(Request request, CancellationToken cancellationToken)
+   at Azure.Security.KeyVault.KeyVaultPipeline.SendRequestAsync[TResult](RequestMethod method, Func`1 resultFactory, CancellationToken cancellationToken, String[] path)
+   at Azure.Security.KeyVault.Secrets.SecretClient.GetSecretAsync(String name, String version, CancellationToken cancellationToken)
+   at CleverSyncSOS.Core.Authentication.KeyVaultCredentialStore.GetSchoolSecretAsync(String keyVaultSchoolPrefix, String functionalName, CancellationToken cancellationToken) in C:\Users\BillM\source\repos\CleverSyncSOS\src\CleverSyncSOS.Core\Authentication\KeyVaultCredentialStore.cs:line 54
+   at CleverSyncSOS.Core.Database.SchoolDb.SchoolDatabaseConnectionFactory.CreateSchoolContextAsync(School school) in C:\Users\BillM\source\repos\CleverSyncSOS\src\CleverSyncSOS.Core\Database\SchoolDb\SchoolDatabaseConnectionFactory.cs:line 45
+   at CleverSyncSOS.Core.Sync.SyncService.SyncSchoolAsync(Int32 schoolId, Boolean forceFullSync, IProgress`1 progress, CancellationToken cancellationToken) in C:\Users\BillM\source\repos\CleverSyncSOS\src\CleverSyncSOS.Core\Sync\SyncService.cs:line 219

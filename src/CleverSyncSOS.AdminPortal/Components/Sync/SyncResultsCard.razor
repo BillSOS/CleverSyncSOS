@@ -1,0 +1,218 @@
+@using CleverSyncSOS.AdminPortal.Models.ViewModels
+
+@if (Result != null)
+{
+    <div class="card mt-3">
+        <div class="card-header @GetHeaderClass()">
+            <h5 class="mb-0">
+                @if (Result.Success)
+                {
+                    <i class="bi bi-check-circle"></i>
+                    <text> Sync Completed Successfully</text>
+                }
+                else
+                {
+                    <i class="bi bi-x-circle"></i>
+                    <text> Sync Failed</text>
+                }
+            </h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <p><strong>Duration:</strong> @FormatDuration(Result.Duration)</p>
+                    <p><strong>Sync Mode:</strong> @Result.SyncMode</p>
+                    <p><strong>Scope:</strong> @GetScopeDescription()</p>
+                </div>
+                <div class="col-md-6">
+                    @if (Result.Scope == "school")
+                    {
+                        @if (Result.IsIncrementalSync)
+                        {
+                            @* Incremental sync shows Created/Updated/Deleted breakdown *@
+                            <p>
+                                <strong>Events:</strong> @Result.EventsProcessed processed
+                                @if (Result.EventsSkipped > 0)
+                                {
+                                    <span class="text-muted">(@Result.EventsSkipped skipped)</span>
+                                }
+                            </p>
+                            <p>
+                                <strong>Students:</strong>
+                                @if (Result.StudentsCreated > 0)
+                                {
+                                    <span class="text-success">@Result.StudentsCreated created</span><text>, </text>
+                                }
+                                @if (Result.StudentsUpdated > 0)
+                                {
+                                    <span class="text-primary">@Result.StudentsUpdated updated</span><text>, </text>
+                                }
+                                @if (Result.StudentsDeleted > 0)
+                                {
+                                    <span class="text-warning">@Result.StudentsDeleted deleted</span>
+                                }
+                                @if (Result.StudentsCreated == 0 && Result.StudentsUpdated == 0 && Result.StudentsDeleted == 0)
+                                {
+                                    <span class="text-muted">no changes</span>
+                                }
+                            </p>
+                            <p>
+                                <strong>Teachers:</strong>
+                                @if (Result.TeachersCreated > 0)
+                                {
+                                    <span class="text-success">@Result.TeachersCreated created</span><text>, </text>
+                                }
+                                @if (Result.TeachersUpdated > 0)
+                                {
+                                    <span class="text-primary">@Result.TeachersUpdated updated</span><text>, </text>
+                                }
+                                @if (Result.TeachersDeleted > 0)
+                                {
+                                    <span class="text-warning">@Result.TeachersDeleted deleted</span>
+                                }
+                                @if (Result.TeachersCreated == 0 && Result.TeachersUpdated == 0 && Result.TeachersDeleted == 0)
+                                {
+                                    <span class="text-muted">no changes</span>
+                                }
+                            </p>
+                            <p>
+                                <strong>Sections:</strong>
+                                @if (Result.SectionsCreated > 0)
+                                {
+                                    <span class="text-success">@Result.SectionsCreated created</span><text>, </text>
+                                }
+                                @if (Result.SectionsUpdated > 0)
+                                {
+                                    <span class="text-primary">@Result.SectionsUpdated updated</span><text>, </text>
+                                }
+                                @if (Result.SectionsDeleted > 0)
+                                {
+                                    <span class="text-warning">@Result.SectionsDeleted deleted</span>
+                                }
+                                @if (Result.SectionsCreated == 0 && Result.SectionsUpdated == 0 && Result.SectionsDeleted == 0)
+                                {
+                                    <span class="text-muted">no changes</span>
+                                }
+                            </p>
+                        }
+                        else
+                        {
+                            @* Full sync shows processed/failed counts *@
+                            <p>
+                                <strong>Students:</strong>
+                                @Result.StudentsProcessed processed,
+                                @Result.StudentsFailed failed
+                                @if (Result.StudentsDeleted > 0)
+                                {
+                                    <text>, @Result.StudentsDeleted deleted</text>
+                                }
+                            </p>
+                            <p>
+                                <strong>Teachers:</strong>
+                                @Result.TeachersProcessed processed,
+                                @Result.TeachersFailed failed
+                                @if (Result.TeachersDeleted > 0)
+                                {
+                                    <text>, @Result.TeachersDeleted deleted</text>
+                                }
+                            </p>
+                        }
+                    }
+                    else
+                    {
+                        <p><strong>Total Schools:</strong> @Result.TotalSchools</p>
+                        <p><strong>Successful:</strong> @Result.SuccessfulSchools</p>
+                        <p><strong>Failed:</strong> @Result.FailedSchools</p>
+                    }
+                </div>
+            </div>
+
+            @if (!string.IsNullOrEmpty(Result.ErrorMessage))
+            {
+                <div class="alert alert-danger mt-3" role="alert">
+                    <strong>Error:</strong> @Result.ErrorMessage
+                </div>
+            }
+
+            @if (Result.SchoolResults != null && Result.SchoolResults.Any())
+            {
+                <hr />
+                <h6>School Results</h6>
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>School</th>
+                            <th>Status</th>
+                            <th>Students</th>
+                            <th>Teachers</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var school in Result.SchoolResults)
+                        {
+                            <tr>
+                                <td>@school.SchoolName</td>
+                                <td>
+                                    @if (school.Success)
+                                    {
+                                        <span class="badge bg-success">Success</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-danger">Failed</span>
+                                    }
+                                </td>
+                                <td>@school.StudentsProcessed</td>
+                                <td>@school.TeachersProcessed</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+
+            <div class="mt-3">
+                <a href="/sync-history" class="btn btn-secondary">View Detailed History</a>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public SyncResultViewModel? Result { get; set; }
+
+    private string GetHeaderClass()
+    {
+        if (Result == null) return "bg-secondary text-white";
+        return Result.Success ? "bg-success text-white" : "bg-danger text-white";
+    }
+
+    private string FormatDuration(TimeSpan duration)
+    {
+        if (duration.TotalHours >= 1)
+        {
+            return $"{(int)duration.TotalHours}h {duration.Minutes}m {duration.Seconds}s";
+        }
+        else if (duration.TotalMinutes >= 1)
+        {
+            return $"{(int)duration.TotalMinutes}m {duration.Seconds}s";
+        }
+        else
+        {
+            return $"{duration.Seconds}s";
+        }
+    }
+
+    private string GetScopeDescription()
+    {
+        if (Result == null) return "";
+
+        return Result.Scope switch
+        {
+            "school" => $"School: {Result.SchoolName}",
+            "district" => $"District (ID: {Result.DistrictId})",
+            "all" => "All Districts",
+            _ => Result.Scope
+        };
+    }
+}

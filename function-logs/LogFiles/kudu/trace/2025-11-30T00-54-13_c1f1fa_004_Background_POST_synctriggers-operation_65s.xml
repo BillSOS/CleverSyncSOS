@@ -1,0 +1,8 @@
+<step title="BackgroundTrace" date="2025-11-30T00:54:13.694" instance="c1f1fa" url="synctriggers-operation" method="POST" >
+  <step title="Updating shutdown sentinel last write time" date="2025-11-30T00:54:13.710" SemaphoreCount="6" /><!-- duration: 16ms -->
+  <step title="Delaying &apos;00:01:00&apos; for Functions site to restart." date="2025-11-30T00:54:13.741" /><!-- duration: 16ms -->
+  <step title="Begin HttpPost https://cleversyncprod-fn.azurewebsites.net/admin/host/synctriggers, x-ms-request-id: 36ab22e7-bbc2-484b-b0c2-2956c740851f" date="2025-11-30T00:55:13.809" /><!-- duration: 16ms -->
+  <step title="End HttpPost, status: OK" date="2025-11-30T00:55:18.528" /><!-- duration: 31ms -->
+  <step title="Syncing function triggers by calling the functions runtime site successful." date="2025-11-30T00:55:18.559" /><!-- duration: 16ms -->
+  <step title="Deleting shutdown sentinel file" date="2025-11-30T00:55:18.590" SemaphoreCount="8" /><!-- duration: 16ms -->
+</step><!-- duration: 64927ms -->

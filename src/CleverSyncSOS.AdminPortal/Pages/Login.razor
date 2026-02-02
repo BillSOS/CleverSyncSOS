@@ -1,0 +1,43 @@
+@page "/login"
+@inject NavigationManager NavigationManager
+
+<PageTitle>Sign In - CleverSync Admin</PageTitle>
+
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-body">
+                    <h2 class="card-title text-center mb-4">CleverSync Admin Portal</h2>
+                    <p class="text-center text-muted mb-4">Sign in to manage your schools and sync operations</p>
+
+                    <div class="d-grid gap-3">
+                        <a href="/signin-clever" class="btn btn-primary btn-lg">
+                            <i class="oi oi-account-login"></i> Sign in with Clever
+                        </a>
+
+                        <div class="text-center text-muted">
+                            <small>School and District Administrators</small>
+                        </div>
+                    </div>
+
+                    <hr class="my-4">
+
+                    <div class="text-center">
+                        <small class="text-muted">
+                            Super Administrators: <a href="/admin/bypass-login">Bypass Login</a>
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        // If user tries to access /login but is already authenticated, redirect to home
+        // This will be handled by checking authentication state
+    }
+}

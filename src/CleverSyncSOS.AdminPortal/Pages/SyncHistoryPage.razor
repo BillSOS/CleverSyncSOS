@@ -1,0 +1,778 @@
+@page "/sync-history"
+@attribute [Authorize(Policy = "SchoolAdmin")]
+@using CleverSyncSOS.Core.Database.SessionDb
+@using CleverSyncSOS.Core.Database.SessionDb.Entities
+@using CleverSyncSOS.Core.Database.SchoolDb
+@using CleverSyncSOS.Core.Database.SchoolDb.Entities
+@using Microsoft.EntityFrameworkCore
+@using System.Text.Json
+@inject SessionDbContext DbContext
+@inject SchoolDatabaseConnectionFactory SchoolDbFactory
+@inject AuthenticationStateProvider AuthStateProvider
+
+<PageTitle>Sync History - CleverSync Admin</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="d-flex align-items-center">
+            <img src="favicon.png" alt="CleverSync Logo" style="height: 2.5rem; margin-right: 1rem;" />
+            <h1 class="mb-0">Sync History</h1>
+        </div>
+        <button class="btn btn-primary" @onclick="RefreshHistory">
+            <i class="oi oi-reload"></i> Refresh
+        </button>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title">Filters</h5>
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label for="schoolFilter" class="form-label">School</label>
+                    <select class="form-select" id="schoolFilter" @bind="_schoolFilter" @bind:after="ApplyFilters">
+                        <option value="">All Schools</option>
+                        @if (_schools != null)
+                        {
+                            @foreach (var school in _schools)
+                            {
+                                <option value="@school.SchoolId">@school.Name</option>
+                            }
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="entityFilter" class="form-label">Entity Type</label>
+                    <select class="form-select" id="entityFilter" @bind="_entityFilter" @bind:after="ApplyFilters">
+                        <option value="">All Types</option>
+                        <option value="Student">Students</option>
+                        <option value="Teacher">Teachers</option>
+                        <option value="Event">Events</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="syncTypeFilter" class="form-label">Sync Type</label>
+                    <select class="form-select" id="syncTypeFilter" @bind="_syncTypeFilter" @bind:after="ApplyFilters">
+                        <option value="">All Types</option>
+                        <option value="Full">Full</option>
+                        <option value="Incremental">Incremental</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="statusFilter" class="form-label">Status</label>
+                    <select class="form-select" id="statusFilter" @bind="_statusFilter" @bind:after="ApplyFilters">
+                        <option value="">All</option>
+                        <option value="Success">Success</option>
+                        <option value="Failed">Failed</option>
+                        <option value="InProgress">In Progress</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="text-center my-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2 text-muted">Loading sync history...</p>
+        </div>
+    }
+    else if (_error != null)
+    {
+        <div class="alert alert-danger" role="alert">
+            <h4 class="alert-heading">Error</h4>
+            <p>@_error</p>
+            <button class="btn btn-sm btn-outline-danger" @onclick="LoadHistory">Try Again</button>
+        </div>
+    }
+    else if (_syncHistory == null || !_syncHistory.Any())
+    {
+        <div class="alert alert-info" role="alert">
+            <h4 class="alert-heading">No Sync History Found</h4>
+            <p>No sync operations match the current filters.</p>
+        </div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>Started</th>
+                        <th>School</th>
+                        <th>Type</th>
+                        <th>Sync Type</th>
+                        <th>Duration</th>
+                        <th>Processed</th>
+                        <th>Updated</th>
+                        <th>Failed</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var sync in _syncHistory)
+                    {
+                        <tr>
+                            <td class="text-nowrap small">
+                                @FormatLocalTime(sync.SyncStartTime, sync.School?.District?.LocalTimeZone, "yyyy-MM-dd h:mm tt")
+                            </td>
+                            <td>@sync.School?.Name</td>
+                            <td>
+                                <span class="badge @GetEntityTypeBadgeClass(sync.EntityType)">
+                                    @sync.EntityType
+                                </span>
+                            </td>
+                            <td>
+                                <span class="badge @GetSyncTypeBadgeClass(sync.SyncType)">
+                                    @sync.SyncType
+                                </span>
+                            </td>
+                            <td class="text-muted small">
+                                @if (sync.SyncEndTime.HasValue)
+                                {
+                                    @FormatDuration(sync.SyncEndTime.Value - sync.SyncStartTime)
+                                }
+                                else
+                                {
+                                    <text>-</text>
+                                }
+                            </td>
+                            <td>@sync.RecordsProcessed</td>
+                            <td>
+                                @if (sync.RecordsUpdated > 0)
+                                {
+                                    <span class="badge bg-info">@sync.RecordsUpdated</span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">0</span>
+                                }
+                            </td>
+                            <td>
+                                @if (sync.RecordsFailed > 0)
+                                {
+                                    <span class="badge bg-danger">@sync.RecordsFailed</span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">0</span>
+                                }
+                            </td>
+                            <td>
+                                <span class="badge @GetStatusBadgeClass(sync.Status)">
+                                    @sync.Status
+                                </span>
+                            </td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-primary" @onclick="() => ToggleDetails(sync.SyncId)">
+                                    @if (_expandedSyncId == sync.SyncId)
+                                    {
+                                        <i class="oi oi-chevron-top"></i>
+                                    }
+                                    else
+                                    {
+                                        <i class="oi oi-chevron-bottom"></i>
+                                    }
+                                    Details
+                                </button>
+                            </td>
+                        </tr>
+                        @if (_expandedSyncId == sync.SyncId)
+                        {
+                            <tr>
+                                <td colspan="10">
+                                    <div class="p-3 bg-light">
+                                        @* Show sync type indicator *@
+                                        <div class="mb-3">
+                                            <strong>Sync Method:</strong>
+                                            @if (sync.SyncType == SyncType.Incremental && !string.IsNullOrEmpty(sync.LastEventId))
+                                            {
+                                                <span class="badge bg-success ms-2">Events-based (Incremental)</span>
+                                                <span class="text-muted small ms-2">Last Event ID: @sync.LastEventId</span>
+                                            }
+                                            else if (sync.SyncType == SyncType.Full)
+                                            {
+                                                <span class="badge bg-primary ms-2">Full Sync</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-secondary ms-2">@sync.SyncType</span>
+                                            }
+                                        </div>
+
+                                        @* Show events summary if available *@
+                                        @if (!string.IsNullOrEmpty(sync.EventsSummaryJson))
+                                        {
+                                            var eventsSummary = GetEventsSummaryDisplay(sync.EventsSummaryJson);
+                                            <div class="alert alert-success mb-3" role="alert">
+                                                <strong>Events Processed:</strong> @eventsSummary
+                                            </div>
+                                        }
+
+                                        @if (_loadingDetails)
+                                        {
+                                            <div class="text-center">
+                                                <div class="spinner-border spinner-border-sm text-primary" role="status">
+                                                    <span class="visually-hidden">Loading details...</span>
+                                                </div>
+                                            </div>
+                                        }
+                                        else if (_changeDetails == null || !_changeDetails.Any())
+                                        {
+                                            <div class="alert alert-info mb-0" role="alert">
+                                                <strong>No records were updated</strong> during this sync operation.
+                                                @if (sync.RecordsProcessed > 0)
+                                                {
+                                                    <text> All @sync.RecordsProcessed records examined were already up-to-date.</text>
+                                                }
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <h6 class="mb-3">Change Details (@_changeDetails.Count changes)</h6>
+                                            <div class="table-responsive">
+                                                <table class="table table-sm table-bordered">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>Name</th>
+                                                            <th>Entity Type</th>
+                                                            <th>Change Type</th>
+                                                            <th>Fields Changed</th>
+                                                            <th>Old Values</th>
+                                                            <th>New Values</th>
+                                                            <th>Time</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        @foreach (var detail in _changeDetails)
+                                                        {
+                                                            <tr>
+                                                                <td>@detail.EntityName</td>
+                                                                <td>
+                                                                    <span class="badge @GetEntityTypeBadgeClass(detail.EntityType)">
+                                                                        @detail.EntityType
+                                                                    </span>
+                                                                </td>
+                                                                <td>
+                                                                    <span class="badge @GetChangeTypeBadgeClass(detail.ChangeType)">
+                                                                        @detail.ChangeType
+                                                                    </span>
+                                                                </td>
+                                                                <td>@detail.FieldsChanged</td>
+                                                                <td class="small">@FormatJsonValues(detail.OldValues)</td>
+                                                                <td class="small">@FormatJsonValues(detail.NewValues)</td>
+                                                                <td class="text-nowrap small">
+                                                                    @FormatLocalTime(detail.ChangedAt, sync.School?.District?.LocalTimeZone, "h:mm:ss tt")
+                                                                </td>
+                                                            </tr>
+                                                        }
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        }
+
+                                        @* Workshop Sync Audit Records *@
+                                        @if (_workshopAudits != null && _workshopAudits.Any())
+                                        {
+                                            <h6 class="mb-3 mt-4">
+                                                <span class="badge bg-purple text-white me-2">Workshop Sync</span>
+                                                Workshop Assignment Changes (@_workshopAudits.Count)
+                                            </h6>
+                                            <div class="table-responsive">
+                                                <table class="table table-sm table-bordered">
+                                                    <thead class="table-light">
+                                                        <tr>
+                                                            <th>Student</th>
+                                                            <th>Previous Workshop</th>
+                                                            <th>New Workshop</th>
+                                                            <th>Workshop Date</th>
+                                                            <th>Action</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        @foreach (var audit in _workshopAudits)
+                                                        {
+                                                            <tr>
+                                                                <td>@audit.StudentName</td>
+                                                                <td class="text-muted">@audit.OldWorkshopName</td>
+                                                                <td><strong>@audit.NewWorkshopName</strong></td>
+                                                                <td class="text-nowrap">@audit.WorkshopDate.ToString("yyyy-MM-dd")</td>
+                                                                <td>
+                                                                    <span class="badge @GetWorkshopActionBadgeClass(audit.ActionType)">
+                                                                        @audit.ActionType
+                                                                    </span>
+                                                                </td>
+                                                            </tr>
+                                                        }
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="d-flex justify-content-between align-items-center mt-3">
+            <p class="text-muted mb-0">
+                Showing @_syncHistory.Count of @_totalCount sync operations
+            </p>
+            @if (_syncHistory.Count < _totalCount)
+            {
+                <button class="btn btn-outline-primary btn-sm" @onclick="LoadMoreHistory">
+                    Load More
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private List<SyncHistory>? _syncHistory;
+    private List<School>? _schools;
+    private bool _loading = true;
+    private string? _error;
+    private int _totalCount;
+    private int _pageSize = 50;
+    private int _currentPage = 1;
+    private int? _userSchoolId;
+
+    // Filters
+    private string _schoolFilter = "";
+    private string _entityFilter = "";
+    private string _syncTypeFilter = "";
+    private string _statusFilter = "";
+
+    // Details expansion
+    private int? _expandedSyncId = null;
+    private List<SyncChangeDetail>? _changeDetails = null;
+    private List<WorkshopAuditDto>? _workshopAudits = null;
+    private bool _loadingDetails = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Get current user's school if they're school-scoped
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        if (user.IsInRole("SchoolAdmin"))
+        {
+            var schoolIdClaim = user.FindFirst("SchoolId");
+            if (schoolIdClaim != null && int.TryParse(schoolIdClaim.Value, out int schoolId))
+            {
+                _userSchoolId = schoolId;
+                _schoolFilter = schoolId.ToString();
+            }
+        }
+
+        await LoadSchools();
+        await LoadHistory();
+    }
+
+    private async Task LoadSchools()
+    {
+        try
+        {
+            if (_userSchoolId.HasValue)
+            {
+                _schools = await DbContext.Schools
+                    .Where(s => s.SchoolId == _userSchoolId.Value)
+                    .OrderBy(s => s.Name)
+                    .ToListAsync();
+            }
+            else
+            {
+                _schools = await DbContext.Schools
+                    .OrderBy(s => s.Name)
+                    .ToListAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to load schools: {ex.Message}";
+        }
+    }
+
+    private async Task LoadHistory()
+    {
+        _loading = true;
+        _error = null;
+        _currentPage = 1;
+        _expandedSyncId = null;
+        _changeDetails = null;
+
+        try
+        {
+            var query = DbContext.SyncHistory
+                .Include(h => h.School)
+                    .ThenInclude(s => s.District)
+                .AsQueryable();
+
+            // Apply school-level filtering if user is school-scoped
+            if (_userSchoolId.HasValue)
+            {
+                query = query.Where(h => h.SchoolId == _userSchoolId.Value);
+            }
+
+            // Apply filters
+            query = ApplyQueryFilters(query);
+
+            _totalCount = await query.CountAsync();
+
+            _syncHistory = await query
+                .OrderByDescending(h => h.SyncStartTime)
+                .Take(_pageSize)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to load sync history: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task LoadMoreHistory()
+    {
+        if (_syncHistory == null) return;
+
+        try
+        {
+            _currentPage++;
+
+            var query = DbContext.SyncHistory
+                .Include(h => h.School)
+                    .ThenInclude(s => s.District)
+                .AsQueryable();
+
+            if (_userSchoolId.HasValue)
+            {
+                query = query.Where(h => h.SchoolId == _userSchoolId.Value);
+            }
+
+            query = ApplyQueryFilters(query);
+
+            var moreHistory = await query
+                .OrderByDescending(h => h.SyncStartTime)
+                .Skip(_pageSize * (_currentPage - 1))
+                .Take(_pageSize)
+                .ToListAsync();
+
+            _syncHistory.AddRange(moreHistory);
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to load more history: {ex.Message}";
+        }
+    }
+
+    private async Task ToggleDetails(int syncId)
+    {
+        if (_expandedSyncId == syncId)
+        {
+            _expandedSyncId = null;
+            _changeDetails = null;
+            _workshopAudits = null;
+        }
+        else
+        {
+            _expandedSyncId = syncId;
+            _loadingDetails = true;
+            _changeDetails = null;
+            _workshopAudits = null;
+
+            try
+            {
+                // Load sync change details
+                _changeDetails = await DbContext.SyncChangeDetails
+                    .Where(c => c.SyncId == syncId)
+                    .OrderBy(c => c.ChangedAt)
+                    .ToListAsync();
+
+                // Load workshop audit records if this sync has a school
+                var syncHistory = _syncHistory?.FirstOrDefault(h => h.SyncId == syncId);
+                if (syncHistory?.School != null)
+                {
+                    _workshopAudits = await LoadWorkshopAuditsAsync(syncHistory.School.SchoolId, syncId);
+                }
+            }
+            catch (Exception ex)
+            {
+                _error = $"Failed to load change details: {ex.Message}";
+            }
+            finally
+            {
+                _loadingDetails = false;
+            }
+        }
+    }
+
+    private async Task<List<WorkshopAuditDto>> LoadWorkshopAuditsAsync(int schoolId, int syncId)
+    {
+        try
+        {
+            // Get the school to retrieve connection string
+            var school = await DbContext.Schools
+                .FirstOrDefaultAsync(s => s.SchoolId == schoolId);
+
+            if (school == null || string.IsNullOrEmpty(school.KeyVaultSchoolPrefix))
+                return new List<WorkshopAuditDto>();
+
+            // Create school database context
+            using var schoolDb = await SchoolDbFactory.CreateSchoolContextAsync(school);
+
+            // Query workshop sync audits using the ImportLogId (which maps to SyncId)
+            var audits = await schoolDb.WorkshopSyncAudits
+                .Where(a => a.ImportLogId == syncId)
+                .Include(a => a.Student)
+                .Include(a => a.OldWorkshopSchedule)
+                    .ThenInclude(ws => ws!.Workshop)
+                .Include(a => a.NewWorkshopSchedule)
+                    .ThenInclude(ws => ws!.Workshop)
+                .OrderBy(a => a.Student!.LastName)
+                    .ThenBy(a => a.Student!.FirstName)
+                .Select(a => new WorkshopAuditDto
+                {
+                    StudentName = a.Student != null
+                        ? $"{a.Student.LastName}, {a.Student.FirstName}"
+                        : "Unknown",
+                    OldWorkshopName = a.OldWorkshopSchedule != null && a.OldWorkshopSchedule.Workshop != null
+                        ? a.OldWorkshopSchedule.Workshop.WorkshopName
+                        : "-",
+                    NewWorkshopName = a.NewWorkshopSchedule != null && a.NewWorkshopSchedule.Workshop != null
+                        ? a.NewWorkshopSchedule.Workshop.WorkshopName
+                        : "-",
+                    WorkshopDate = a.WorkshopDate,
+                    ActionType = a.ActionType
+                })
+                .ToListAsync();
+
+            return audits;
+        }
+        catch
+        {
+            // Return empty list if school database is not accessible
+            return new List<WorkshopAuditDto>();
+        }
+    }
+
+    private IQueryable<SyncHistory> ApplyQueryFilters(IQueryable<SyncHistory> query)
+    {
+        if (!string.IsNullOrWhiteSpace(_schoolFilter) && int.TryParse(_schoolFilter, out int schoolId))
+        {
+            query = query.Where(h => h.SchoolId == schoolId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(_entityFilter))
+        {
+            query = query.Where(h => h.EntityType == _entityFilter);
+        }
+
+        if (!string.IsNullOrWhiteSpace(_syncTypeFilter))
+        {
+            if (Enum.TryParse<SyncType>(_syncTypeFilter, out var syncType))
+            {
+                query = query.Where(h => h.SyncType == syncType);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(_statusFilter))
+        {
+            query = query.Where(h => h.Status == _statusFilter);
+        }
+
+        return query;
+    }
+
+    private async Task ApplyFilters()
+    {
+        await LoadHistory();
+    }
+
+    private async Task RefreshHistory()
+    {
+        await LoadHistory();
+    }
+
+    private string GetEntityTypeBadgeClass(string entityType)
+    {
+        return entityType switch
+        {
+            "Student" => "bg-primary",
+            "Teacher" => "bg-success",
+            "Event" => "bg-info",
+            _ => "bg-secondary"
+        };
+    }
+
+    private string GetSyncTypeBadgeClass(SyncType syncType)
+    {
+        return syncType switch
+        {
+            SyncType.Full => "bg-warning text-dark",
+            SyncType.Incremental => "bg-info",
+            _ => "bg-secondary"
+        };
+    }
+
+    private string GetStatusBadgeClass(string status)
+    {
+        return status switch
+        {
+            "Success" => "bg-success",
+            "Failed" => "bg-danger",
+            "InProgress" => "bg-warning text-dark",
+            _ => "bg-secondary"
+        };
+    }
+
+    private string GetChangeTypeBadgeClass(string changeType)
+    {
+        return changeType switch
+        {
+            "Created" => "bg-success",
+            "Updated" => "bg-info",
+            "Deleted" => "bg-danger",
+            _ => "bg-secondary"
+        };
+    }
+
+    private string GetWorkshopActionBadgeClass(string actionType)
+    {
+        return actionType?.ToLower() switch
+        {
+            "moved" => "bg-info",
+            "added" => "bg-success",
+            "removed" => "bg-danger",
+            _ => "bg-secondary"
+        };
+    }
+
+    private string FormatDuration(TimeSpan duration)
+    {
+        if (duration.TotalHours >= 1)
+        {
+            return $"{(int)duration.TotalHours}h {duration.Minutes}m";
+        }
+        else if (duration.TotalMinutes >= 1)
+        {
+            return $"{(int)duration.TotalMinutes}m {duration.Seconds}s";
+        }
+        else
+        {
+            return $"{duration.Seconds}s";
+        }
+    }
+
+    private DateTime ConvertToLocalTime(DateTime utcTime, string? timeZoneId)
+    {
+        if (string.IsNullOrEmpty(timeZoneId))
+        {
+            timeZoneId = "Eastern Standard Time"; // Default to Eastern if not specified
+        }
+
+        try
+        {
+            var timeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+            return TimeZoneInfo.ConvertTimeFromUtc(utcTime, timeZone);
+        }
+        catch
+        {
+            // If timezone conversion fails, fall back to Eastern Standard Time
+            var easternZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+            return TimeZoneInfo.ConvertTimeFromUtc(utcTime, easternZone);
+        }
+    }
+
+    private string FormatLocalTime(DateTime utcTime, string? timeZoneId, string format = "g")
+    {
+        var localTime = ConvertToLocalTime(utcTime, timeZoneId);
+        return localTime.ToString(format);
+    }
+
+    private string FormatJsonValues(string? jsonValues)
+    {
+        if (string.IsNullOrEmpty(jsonValues))
+            return "-";
+
+        try
+        {
+            var values = JsonSerializer.Deserialize<Dictionary<string, string>>(jsonValues);
+            if (values == null || !values.Any())
+                return "-";
+
+            return string.Join(", ", values.Select(kvp => $"{kvp.Key}: {kvp.Value}"));
+        }
+        catch
+        {
+            return jsonValues;
+        }
+    }
+
+    private string GetEventsSummaryDisplay(string? eventsSummaryJson)
+    {
+        if (string.IsNullOrEmpty(eventsSummaryJson))
+            return "No events data";
+
+        try
+        {
+            var summary = JsonSerializer.Deserialize<EventsSummaryDto>(eventsSummaryJson);
+            if (summary == null)
+                return "No events data";
+
+            var parts = new List<string>();
+
+            if (summary.StudentCreated > 0) parts.Add($"{summary.StudentCreated} student created");
+            if (summary.StudentUpdated > 0) parts.Add($"{summary.StudentUpdated} student updated");
+            if (summary.StudentDeleted > 0) parts.Add($"{summary.StudentDeleted} student deleted");
+            if (summary.TeacherCreated > 0) parts.Add($"{summary.TeacherCreated} teacher created");
+            if (summary.TeacherUpdated > 0) parts.Add($"{summary.TeacherUpdated} teacher updated");
+            if (summary.TeacherDeleted > 0) parts.Add($"{summary.TeacherDeleted} teacher deleted");
+            if (summary.SectionCreated > 0) parts.Add($"{summary.SectionCreated} section created");
+            if (summary.SectionUpdated > 0) parts.Add($"{summary.SectionUpdated} section updated");
+            if (summary.SectionDeleted > 0) parts.Add($"{summary.SectionDeleted} section deleted");
+            if (summary.EventsSkipped > 0) parts.Add($"{summary.EventsSkipped} skipped");
+
+            if (parts.Count == 0) return "No events processed";
+            return $"{summary.TotalEventsProcessed} events: {string.Join(", ", parts)}";
+        }
+        catch
+        {
+            return eventsSummaryJson;
+        }
+    }
+
+    // DTO for deserializing EventsSummary from JSON
+    private class EventsSummaryDto
+    {
+        public int TotalEventsProcessed { get; set; }
+        public int StudentCreated { get; set; }
+        public int StudentUpdated { get; set; }
+        public int StudentDeleted { get; set; }
+        public int TeacherCreated { get; set; }
+        public int TeacherUpdated { get; set; }
+        public int TeacherDeleted { get; set; }
+        public int SectionCreated { get; set; }
+        public int SectionUpdated { get; set; }
+        public int SectionDeleted { get; set; }
+        public int EventsSkipped { get; set; }
+    }
+
+    // DTO for displaying WorkshopSyncAudit records
+    private class WorkshopAuditDto
+    {
+        public string StudentName { get; set; } = string.Empty;
+        public string OldWorkshopName { get; set; } = string.Empty;
+        public string NewWorkshopName { get; set; } = string.Empty;
+        public DateTime WorkshopDate { get; set; }
+        public string ActionType { get; set; } = string.Empty;
+    }
+}

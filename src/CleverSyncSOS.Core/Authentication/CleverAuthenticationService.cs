@@ -67,8 +67,13 @@ public class CleverAuthenticationService : ICleverAuthenticationService
         try
         {
             // FR-002: Retrieve credentials from secure storage
-            var clientId = await _credentialStore.GetClientIdAsync(cancellationToken);
-            var clientSecret = await _credentialStore.GetClientSecretAsync(cancellationToken);
+            // Use global secrets for system-wide Clever API access
+            var clientId = await _credentialStore.GetGlobalSecretAsync(
+                Configuration.KeyVaultSecretNaming.Global.ClientId,
+                cancellationToken);
+            var clientSecret = await _credentialStore.GetGlobalSecretAsync(
+                Configuration.KeyVaultSecretNaming.Global.ClientSecret,
+                cancellationToken);
 
             // FR-001: OAuth 2.0 client credentials flow
             var token = await AuthenticateWithRetryAsync(clientId, clientSecret, cancellationToken);
@@ -114,7 +119,10 @@ public class CleverAuthenticationService : ICleverAuthenticationService
         // Clever district-app tokens can be generated once in dashboard and used directly
         try
         {
-            var preGeneratedToken = await _credentialStore.GetSecretAsync("CleverAccessToken");
+            // Check for pre-generated access token (optional, for districts with bearer tokens)
+            var preGeneratedToken = await _credentialStore.GetGlobalSecretAsync(
+                Configuration.KeyVaultSecretNaming.Global.AccessToken,
+                cancellationToken);
             if (!string.IsNullOrEmpty(preGeneratedToken))
             {
                 _logger.LogInformation("Using pre-generated Clever access token from Key Vault");
@@ -131,7 +139,7 @@ public class CleverAuthenticationService : ICleverAuthenticationService
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "No pre-generated token found in Key Vault, falling back to OAuth flow");
+            _logger.LogDebug(ex, "No pre-generated token found in Key Vault (CleverSyncSOS--Clever--AccessToken), falling back to OAuth flow");
         }
 
         // Fall back to OAuth authentication flow with retries

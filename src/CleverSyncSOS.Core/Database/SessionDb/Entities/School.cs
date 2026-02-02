@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations.Schema;
+
 namespace CleverSyncSOS.Core.Database.SessionDb.Entities;
 
 /// <summary>
@@ -26,13 +28,31 @@ public class School
     public string Name { get; set; } = string.Empty;
 
     /// <summary>
+    /// Prefix for Key Vault secrets (e.g., "Lincoln-Elementary").
+    /// Used to construct secret names: CleverSyncSOS--{SchoolPrefix}--{Property}
+    /// DEPRECATED: Use KeyVaultSchoolPrefix instead for v2.0 naming convention.
+    /// </summary>
+    [NotMapped]
+    public string? SchoolPrefix { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Prefix used for Key Vault secret naming (e.g., "CityHighSchool").
+    /// Secrets follow pattern: {KeyVaultSchoolPrefix}--{FunctionalName}
+    /// This is the v2.0 naming convention.
+    /// </summary>
+    public string KeyVaultSchoolPrefix { get; set; } = string.Empty;
+
+    /// <summary>
     /// Name of school's dedicated database (e.g., "School_Lincoln_Db").
     /// </summary>
     public string? DatabaseName { get; set; }
 
     /// <summary>
-    /// Key Vault secret name for connection string (e.g., "School-Lincoln-ConnectionString").
+    /// DEPRECATED: Legacy connection string secret name. Use SchoolPrefix instead.
+    /// Kept for migration compatibility only.
     /// </summary>
+    [NotMapped]
+    [Obsolete("Use SchoolPrefix instead. This property will be removed in a future version.")]
     public string? KeyVaultConnectionStringSecretName { get; set; }
 
     /// <summary>

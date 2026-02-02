@@ -1,0 +1,134 @@
+<step title="Incoming Request" date="2025-11-29T19:05:48.341" instance="eef76b" url="/api/publish?type=zip" method="POST" type="request" pid="8604,2,25" Cache-Control="no-cache" Content-Length="8517059" Content-Type="application/octet-stream" Accept="*/*" Accept-Encoding="gzip, deflate" Authorization="Bas..." Host="cleversyncsos.scm.azurewebsites.net" User-Agent="AZURECLI/2.79.0 (MSI)" x-ms-client-request-id="689e92e9-cd56-11f0-ae5a-e02e0bc384b1" X-ARR-LOG-ID="689e92e9-cd56-11f0-ae5a-e02e0bc384b1" CLIENT-IP="208.102.8.31:62854" X-SITE-DEPLOYMENT-ID="CleverSyncSOS" WAS-DEFAULT-HOSTNAME="cleversyncsos.scm.azurewebsites.net" X-Forwarded-Proto="https" X-AppService-Proto="https" X-Forwarded-TlsVersion="1.3" X-WAWS-Unencoded-URL="/api/publish?type=zip" >
+  <step title="Cleanup Xml Logs" date="2025-11-29T19:05:48.341" /><!-- duration: 0ms -->
+  <step title="OneDeploy" date="2025-11-29T19:05:48.390" >
+    <step title="Starting PushDeployAsync" date="2025-11-29T19:05:48.405" /><!-- duration: 0ms -->
+    <step title="Updating shutdown sentinel last write time" date="2025-11-29T19:05:48.499" SemaphoreCount="7" /><!-- duration: 0ms -->
+    <step title="LockFile &apos;C:\home\site\locks\deployments.lock&apos; acquired" date="2025-11-29T19:05:48.515" /><!-- duration: 0ms -->
+    <step title="Saving request content to C:\local\Temp\zipdeploy\eiaihk3s.zip" date="2025-11-29T19:05:48.530" >
+      <step title="Total 8,517,059 bytes written to C:\local\Temp\zipdeploy\eiaihk3s.zip" date="2025-11-29T19:05:50.774" /><!-- duration: 0ms -->
+    </step><!-- duration: 2243ms -->
+    <step title="LockFile &apos;C:\home\site\locks\deployments.lock&apos; released" date="2025-11-29T19:05:50.805" /><!-- duration: 18ms -->
+    <step title="Deleting shutdown sentinel file" date="2025-11-29T19:05:50.836" SemaphoreCount="8" /><!-- duration: 0ms -->
+    <step title="Starting FetchDeploy" date="2025-11-29T19:05:50.836" /><!-- duration: 0ms -->
+    <step title="Attempting to fetch target branch HEAD" date="2025-11-29T19:05:50.853" /><!-- duration: 0ms -->
+    <step title="Updating shutdown sentinel last write time" date="2025-11-29T19:05:50.883" SemaphoreCount="7" /><!-- duration: 0ms -->
+    <step title="LockFile &apos;C:\home\site\locks\deployments.lock&apos; acquired" date="2025-11-29T19:05:50.905" /><!-- duration: 0ms -->
+    <step title="Performing fetch based deployment" date="2025-11-29T19:05:50.915" >
+      <step title="Creating temporary deployment" date="2025-11-29T19:05:50.915" /><!-- duration: 30ms -->
+      <step title="Fetching changes." date="2025-11-29T19:05:51.039" /><!-- duration: 0ms -->
+      <step title="Starting LocalZipHandler" date="2025-11-29T19:05:51.039" /><!-- duration: 0ms -->
+      <step title="Starting LocalZipFetch" date="2025-11-29T19:05:51.106" /><!-- duration: 43ms -->
+      <step title="Cleaning up temp folders from previous zip deployments and extracting pushed zip file C:\local\Temp\zipdeploy\eiaihk3s.zip (8.12 MB) to C:\local\Temp\zipdeploy\extracted" date="2025-11-29T19:05:51.166" /><!-- duration: 0ms -->
+      <step title="Cleaning up temp folders from previous zip deployments and extracting pushed zip file C:\local\Temp\zipdeploy\eiaihk3s.zip (8.12 MB) to C:\local\Temp\zipdeploy\extracted" date="2025-11-29T19:05:51.186" >
+        <step title="Renaming extractTargetDirectory(C:\local\Temp\zipdeploy\extracted) to tempDirectory(C:\local\Temp\zipdeploy\1zc4axul.pkb)" date="2025-11-29T19:05:51.186" /><!-- duration: 10ms -->
+        <step title="Extracting 122 entries to C:\local\Temp\zipdeploy\extracted directory" date="2025-11-29T19:05:51.399" >
+          <step title="Extracting to C:\local\Temp\zipdeploy\extracted\runtimes\unix\lib\net6.0\Microsoft.Data.SqlClient.dll ..." date="2025-11-29T19:05:51.430" /><!-- duration: 98ms -->
+          <step title="Extracting to C:\local\Temp\zipdeploy\extracted\runtimes\unix\lib\net6.0\System.Drawing.Common.dll ..." date="2025-11-29T19:05:51.539" /><!-- duration: 31ms -->
+          <step title="Extracting to C:\local\Temp\zipdeploy\extracted\runtimes\win\lib\net6.0\Microsoft.Data.SqlClient.dll ..." date="2025-11-29T19:05:51.570" /><!-- duration: 250ms -->
+          <step title="Extracting to C:\local\Temp\zipdeploy\extracted\runtimes\win\lib\net6.0\Microsoft.Win32.SystemEvents.dll ..." date="2025-11-29T19:05:51.870" /><!-- duration: 30ms -->
+          <step title="Extracting to C:\local\Temp\zipdeploy\extracted\runtimes\win\lib\net6.0\System.Drawing.Common.dll ..." date="2025-11-29T19:05:51.930" /><!-- duration: 31ms -->
+          <step title="Omitting extracting file traces ..." date="2025-11-29T19:05:51.980" /><!-- duration: 12ms -->
+        </step><!-- duration: 1797ms -->
+      </step><!-- duration: 2150ms -->
+      <step title="None repository commit" date="2025-11-29T19:05:53.355" >
+        <step title="Commit id: 463e8af6473942b1a61cc52b33e8cb9d" date="2025-11-29T19:05:53.367" Message="OneDeploy" AuthorName="N/A" AuthorEmail="N/A" /><!-- duration: 18ms -->
+      </step><!-- duration: 30ms -->
+      <step title="Before sending BuildRequestReceived status to /api/updatedeploystatus" date="2025-11-29T19:05:53.399" /><!-- duration: 0ms -->
+      <step title="DeploymentManager.Deploy(id:463e8af6473942b1a61cc52b33e8cb9d)" date="2025-11-29T19:05:53.399" >
+        <step title="Collecting changeset information" date="2025-11-29T19:05:53.399" /><!-- duration: 49ms -->
+        <step title="Updating submodules" date="2025-11-29T19:05:53.461" >
+          <step title="Updating submodules." date="2025-11-29T19:05:53.539" /><!-- duration: 0ms -->
+        </step><!-- duration: 78ms -->
+        <step title="Preparing deployment for commit id &apos;463e8af647&apos;." date="2025-11-29T19:05:53.649" /><!-- duration: 0ms -->
+        <step title="Determining deployment builder" date="2025-11-29T19:05:53.742" >
+          <step title="Builder is OneDeployBuilder" date="2025-11-29T19:05:53.759" /><!-- duration: 0ms -->
+        </step><!-- duration: 17ms -->
+        <step title="Copying SSH keys" date="2025-11-29T19:05:53.789" /><!-- duration: 0ms -->
+        <step title="Building" date="2025-11-29T19:05:53.789" >
+          <step title="Running build. Project type: OneDeploy" date="2025-11-29T19:05:53.836" /><!-- duration: 31ms -->
+          <step title="Copying the manifest" date="2025-11-29T19:05:53.920" /><!-- duration: 10ms -->
+          <step title="Clean deploying to C:\home\site\wwwroot" date="2025-11-29T19:05:53.992" /><!-- duration: 0ms -->
+          <step title="Generating deployment script." date="2025-11-29T19:05:54.071" /><!-- duration: 0ms -->
+          <step title="Generating deployment script" date="2025-11-29T19:05:54.121" >
+            <step title="Using cached version of the deployment script for command: -y --no-dot-deployment -r &quot;C:\local\Temp\zipdeploy\extracted&quot; -o &quot;C:\home\site\deployments\tools&quot; --basic --sitePath &quot;C:\local\Temp\zipdeploy\extracted&quot;" date="2025-11-29T19:05:54.164" /><!-- duration: 0ms -->
+            <step title="Using cached version of deployment script (command: &apos;azure -y --no-dot-deployment -r &quot;C:\local\Temp\zipdeploy\extracted&quot; -o &quot;C:\home\site\deployments\tools&quot; --basic --sitePath &quot;C:\local\Temp\zipdeploy\extracted&quot;&apos;)." date="2025-11-29T19:05:54.180" /><!-- duration: 0ms -->
+          </step><!-- duration: 75ms -->
+          <step title="Running deployment command..." date="2025-11-29T19:05:54.242" /><!-- duration: 0ms -->
+          <step title="Command: &quot;C:\home\site\deployments\tools\deploy.cmd&quot;" date="2025-11-29T19:05:54.258" /><!-- duration: 18ms -->
+          <step title="Executing external process" date="2025-11-29T19:05:54.306" type="process" path="starter.cmd" arguments="&quot;C:\home\site\deployments\tools\deploy.cmd&quot;" >
+            <step title="Handling Basic Web Site deployment." date="2025-11-29T19:05:55.040" /><!-- duration: 31ms -->
+            <step title="Creating app_offline.htm" date="2025-11-29T19:05:56.258" /><!-- duration: 0ms -->
+            <step title="KuduSync.NET from: &apos;C:\local\Temp\zipdeploy\extracted&apos; to: &apos;C:\home\site\wwwroot&apos;" date="2025-11-29T19:05:56.275" /><!-- duration: 0ms -->
+            <step title="Deleting file: &apos;publish\appsettings.Development.json&apos;" date="2025-11-29T19:05:56.326" /><!-- duration: 11ms -->
+            <step title="Deleting file: &apos;publish\appsettings.json&apos;" date="2025-11-29T19:05:56.466" /><!-- duration: 151ms -->
+            <step title="Deleting file: &apos;publish\appsettings.Production.json&apos;" date="2025-11-29T19:05:56.667" /><!-- duration: 0ms -->
+            <step title="Deleting file: &apos;publish\CleverSyncSOS.AdminPortal.deps.json&apos;" date="2025-11-29T19:05:56.717" /><!-- duration: 30ms -->
+            <step title="Deleting file: &apos;publish\CleverSyncSOS.AdminPortal.runtimeconfig.json&apos;" date="2025-11-29T19:05:56.758" /><!-- duration: 16ms -->
+            <step title="Deleting file: &apos;publish\CleverSyncSOS.AdminPortal.staticwebassets.endpoints.json&apos;" date="2025-11-29T19:05:56.808" /><!-- duration: 13ms -->
+            <step title="Deleting file: &apos;publish\web.config&apos;" date="2025-11-29T19:05:56.838" /><!-- duration: 0ms -->
+            <step title="Deleting file: &apos;publish\publish\appsettings.Development.json&apos;" date="2025-11-29T19:05:56.948" /><!-- duration: 0ms -->
+            <step title="Deleting file: &apos;publish\publish\appsettings.json&apos;" date="2025-11-29T19:05:57.008" /><!-- duration: 0ms -->
+            <step title="Deleting file: &apos;publish\publish\appsettings.Production.json&apos;" date="2025-11-29T19:05:57.008" /><!-- duration: 20ms -->
+            <step title="Deleting file: &apos;publish\publish\CleverSyncSOS.AdminPortal.deps.json&apos;" date="2025-11-29T19:05:57.039" /><!-- duration: 0ms -->
+            <step title="Deleting file: &apos;publish\publish\CleverSyncSOS.AdminPortal.runtimeconfig.json&apos;" date="2025-11-29T19:05:57.149" /><!-- duration: 0ms -->
+            <step title="Deleting file: &apos;publish\publish\CleverSyncSOS.AdminPortal.staticwebassets.endpoints.json&apos;" date="2025-11-29T19:05:57.180" /><!-- duration: 31ms -->
+            <step title="Deleting file: &apos;publish\publish\web.config&apos;" date="2025-11-29T19:05:57.279" /><!-- duration: 0ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\appsettings.Development.json&apos;" date="2025-11-29T19:05:57.289" /><!-- duration: 0ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\appsettings.json&apos;" date="2025-11-29T19:05:57.352" /><!-- duration: 31ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\appsettings.Production.json&apos;" date="2025-11-29T19:05:57.400" /><!-- duration: 0ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\CleverSyncSOS.AdminPortal.deps.json&apos;" date="2025-11-29T19:05:57.414" /><!-- duration: 0ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\CleverSyncSOS.AdminPortal.runtimeconfig.json&apos;" date="2025-11-29T19:05:57.571" /><!-- duration: 49ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\CleverSyncSOS.AdminPortal.staticwebassets.endpoints.json&apos;" date="2025-11-29T19:05:57.680" /><!-- duration: 79ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\web.config&apos;" date="2025-11-29T19:05:57.981" /><!-- duration: 11ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\publish\appsettings.Development.json&apos;" date="2025-11-29T19:05:58.042" /><!-- duration: 141ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\publish\appsettings.json&apos;" date="2025-11-29T19:05:58.305" /><!-- duration: 48ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\publish\appsettings.Production.json&apos;" date="2025-11-29T19:05:58.555" /><!-- duration: 50ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\publish\CleverSyncSOS.AdminPortal.deps.json&apos;" date="2025-11-29T19:05:58.665" /><!-- duration: 20ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\publish\CleverSyncSOS.AdminPortal.runtimeconfig.json&apos;" date="2025-11-29T19:05:58.758" /><!-- duration: 47ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\publish\CleverSyncSOS.AdminPortal.staticwebassets.endpoints.json&apos;" date="2025-11-29T19:05:59.027" /><!-- duration: 60ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\publish\web.config&apos;" date="2025-11-29T19:05:59.197" /><!-- duration: 50ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\publish\publish\appsettings.Development.json&apos;" date="2025-11-29T19:05:59.368" /><!-- duration: 15ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\publish\publish\appsettings.json&apos;" date="2025-11-29T19:05:59.449" /><!-- duration: 0ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\publish\publish\appsettings.Production.json&apos;" date="2025-11-29T19:05:59.539" /><!-- duration: 0ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\publish\publish\CleverSyncSOS.AdminPortal.deps.json&apos;" date="2025-11-29T19:05:59.680" /><!-- duration: 31ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\publish\publish\CleverSyncSOS.AdminPortal.runtimeconfig.json&apos;" date="2025-11-29T19:05:59.742" /><!-- duration: 16ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\publish\publish\CleverSyncSOS.AdminPortal.staticwebassets.endpoints.json&apos;" date="2025-11-29T19:05:59.791" /><!-- duration: 30ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\publish\publish\web.config&apos;" date="2025-11-29T19:05:59.883" /><!-- duration: 18ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\publish\publish\publish\appsettings.Development.json&apos;" date="2025-11-29T19:05:59.931" /><!-- duration: 0ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\publish\publish\publish\appsettings.json&apos;" date="2025-11-29T19:05:59.961" /><!-- duration: 20ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\publish\publish\publish\appsettings.Production.json&apos;" date="2025-11-29T19:05:59.992" /><!-- duration: 79ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\publish\publish\publish\CleverSyncSOS.AdminPortal.deps.json&apos;" date="2025-11-29T19:06:00.935" /><!-- duration: 281ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\publish\publish\publish\CleverSyncSOS.AdminPortal.runtimeconfig.json&apos;" date="2025-11-29T19:06:01.477" /><!-- duration: 0ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\publish\publish\publish\CleverSyncSOS.AdminPortal.staticwebassets.endpoints.json&apos;" date="2025-11-29T19:06:01.508" /><!-- duration: 0ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\publish\publish\publish\web.config&apos;" date="2025-11-29T19:06:01.508" /><!-- duration: 0ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\publish\publish\publish\publish\appsettings.Development.json&apos;" date="2025-11-29T19:06:01.539" /><!-- duration: 0ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\publish\publish\publish\publish\appsettings.json&apos;" date="2025-11-29T19:06:01.539" /><!-- duration: 16ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\publish\publish\publish\publish\appsettings.Production.json&apos;" date="2025-11-29T19:06:01.555" /><!-- duration: 0ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\publish\publish\publish\publish\CleverSyncSOS.AdminPortal.deps.json&apos;" date="2025-11-29T19:06:01.570" /><!-- duration: 0ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\publish\publish\publish\publish\CleverSyncSOS.AdminPortal.runtimeconfig.json&apos;" date="2025-11-29T19:06:01.728" /><!-- duration: 0ms -->
+            <step title="Deleting file: &apos;publish\publish\publish\publish\publish\publish\publish\CleverSyncSOS.AdminPortal.staticwebassets.endpoints.json&apos;" date="2025-11-29T19:06:01.869" /><!-- duration: 30ms -->
+            <step title="Omitting next output lines..." date="2025-11-29T19:06:01.899" /><!-- duration: 0ms -->
+            <step title="Finished successfully." date="2025-11-29T19:06:01.914" /><!-- duration: 16ms -->
+          </step><!-- duration: 7624ms -->
+          <step title="Build completed succesfully." date="2025-11-29T19:06:02.524" /><!-- duration: 0ms -->
+          <step title="Running post deployment command(s)..." date="2025-11-29T19:06:03.025" /><!-- duration: 30ms -->
+          <step title="Requesting site restart" date="2025-11-29T19:06:03.306" /><!-- duration: 0ms -->
+          <step title="Requesting site restart" date="2025-11-29T19:06:03.508" /><!-- duration: 31ms -->
+          <step title="Requesting site restart. Attempt #1" date="2025-11-29T19:06:03.680" /><!-- duration: 68ms -->
+          <step title="Requesting site restart. Attempt #1" date="2025-11-29T19:06:03.758" /><!-- duration: 20ms -->
+          <step title="Successfully requested a restart. Attempt #1" date="2025-11-29T19:06:04.167" /><!-- duration: 13ms -->
+          <step title="Successfully requested a restart. Attempt #1" date="2025-11-29T19:06:04.197" /><!-- duration: 0ms -->
+          <step title="Deployment successful. DEPLOYMENTINFO: deploymentPath = OneDeploy, deployer = OneDeploy, os = windows, sku = Standard, siteName = CleverSyncSOS, siteHostName = cleversyncsos.azurewebsites.net, deploymentStatus = Success" date="2025-11-29T19:06:05.009" /><!-- duration: 20ms -->
+          <step title="Purge deployment items" date="2025-11-29T19:06:05.492" >
+            <step title="Remove 83ae9e91a, Success, received at 11/29/2025 1:04:38 PM" date="2025-11-29T19:06:05.836" /><!-- duration: 17ms -->
+          </step><!-- duration: 381ms -->
+        </step><!-- duration: 12235ms -->
+      </step><!-- duration: 12645ms -->
+      <step title="Cleaning up temp files" date="2025-11-29T19:06:06.055" /><!-- duration: 0ms -->
+      <step title="Skip function trigger and logicapp sync because function is not enabled." date="2025-11-29T19:06:06.696" /><!-- duration: 20ms -->
+    </step><!-- duration: 15921ms -->
+    <step title="LockFile &apos;C:\home\site\locks\deployments.lock&apos; released" date="2025-11-29T19:06:06.856" /><!-- duration: 11ms -->
+    <step title="Deleting shutdown sentinel file" date="2025-11-29T19:06:07.338" SemaphoreCount="8" /><!-- duration: 282ms -->
+  </step><!-- duration: 19280ms -->
+  <step title="Outgoing response" date="2025-11-29T19:06:07.760" type="response" statusCode="200" statusText="OK" Server="Microsoft-IIS/10.0" x-ms-request-id="689e92e9-cd56-11f0-ae5a-e02e0bc384b1" Cache-Control="private" X-AspNet-Version="4.0.30319" /><!-- duration: 13ms -->
+</step><!-- duration: 19479ms -->

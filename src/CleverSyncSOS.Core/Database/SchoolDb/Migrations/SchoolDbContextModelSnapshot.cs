@@ -22,6 +22,168 @@ namespace CleverSyncSOS.Core.Database.SchoolDb.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("CleverSyncSOS.Core.Database.SchoolDb.Entities.Course", b =>
+                {
+                    b.Property<int>("CourseId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("CourseId"));
+
+                    b.Property<string>("CleverCourseId")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DeactivatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("GradeLevels")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
+                    b.Property<DateTime?>("LastModifiedInClever")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("Number")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("SchoolId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Subject")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("CourseId");
+
+                    b.HasIndex("CleverCourseId")
+                        .IsUnique();
+
+                    b.HasIndex("IsActive");
+
+                    b.HasIndex("SchoolId");
+
+                    b.HasIndex("Subject");
+
+                    b.ToTable("Courses");
+                });
+
+            modelBuilder.Entity("CleverSyncSOS.Core.Database.SchoolDb.Entities.Section", b =>
+                {
+                    b.Property<int>("SectionId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("SectionId"));
+
+                    b.Property<string>("CleverSectionId")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<int?>("CourseId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("CourseName")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("CourseNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DeactivatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Grade")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
+                    b.Property<DateTime?>("LastModifiedInClever")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("Period")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("SchoolId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Subject")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("SubjectNormalized")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTime?>("TermEndDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("TermId")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("TermName")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime?>("TermStartDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("SectionId");
+
+                    b.HasIndex("CleverSectionId")
+                        .IsUnique();
+
+                    b.HasIndex("CourseId");
+
+                    b.HasIndex("Grade");
+
+                    b.HasIndex("IsActive");
+
+                    b.HasIndex("SchoolId");
+
+                    b.HasIndex("Subject");
+
+                    b.HasIndex("TermId");
+
+                    b.ToTable("Sections");
+                });
+
             modelBuilder.Entity("CleverSyncSOS.Core.Database.SchoolDb.Entities.Student", b =>
                 {
                     b.Property<int>("StudentId")
@@ -81,7 +243,36 @@ namespace CleverSyncSOS.Core.Database.SchoolDb.Migrations
 
                     b.HasIndex("IsActive");
 
-                    b.ToTable("Students", (string)null);
+                    b.ToTable("Students");
+                });
+
+            modelBuilder.Entity("CleverSyncSOS.Core.Database.SchoolDb.Entities.StudentSection", b =>
+                {
+                    b.Property<int>("StudentSectionId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("StudentSectionId"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("SectionId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("StudentId")
+                        .HasColumnType("int");
+
+                    b.HasKey("StudentSectionId");
+
+                    b.HasIndex("SectionId");
+
+                    b.HasIndex("StudentId");
+
+                    b.HasIndex("StudentId", "SectionId")
+                        .IsUnique();
+
+                    b.ToTable("StudentSections");
                 });
 
             modelBuilder.Entity("CleverSyncSOS.Core.Database.SchoolDb.Entities.Teacher", b =>
@@ -140,7 +331,101 @@ namespace CleverSyncSOS.Core.Database.SchoolDb.Migrations
 
                     b.HasIndex("IsActive");
 
-                    b.ToTable("Teachers", (string)null);
+                    b.ToTable("Teachers");
+                });
+
+            modelBuilder.Entity("CleverSyncSOS.Core.Database.SchoolDb.Entities.TeacherSection", b =>
+                {
+                    b.Property<int>("TeacherSectionId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("TeacherSectionId"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsPrimary")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("SectionId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TeacherId")
+                        .HasColumnType("int");
+
+                    b.HasKey("TeacherSectionId");
+
+                    b.HasIndex("IsPrimary");
+
+                    b.HasIndex("SectionId");
+
+                    b.HasIndex("TeacherId");
+
+                    b.HasIndex("TeacherId", "SectionId")
+                        .IsUnique();
+
+                    b.ToTable("TeacherSections");
+                });
+
+            modelBuilder.Entity("CleverSyncSOS.Core.Database.SchoolDb.Entities.Section", b =>
+                {
+                    b.HasOne("CleverSyncSOS.Core.Database.SchoolDb.Entities.Course", "Course")
+                        .WithMany("Sections")
+                        .HasForeignKey("CourseId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Course");
+                });
+
+            modelBuilder.Entity("CleverSyncSOS.Core.Database.SchoolDb.Entities.StudentSection", b =>
+                {
+                    b.HasOne("CleverSyncSOS.Core.Database.SchoolDb.Entities.Section", "Section")
+                        .WithMany("StudentSections")
+                        .HasForeignKey("SectionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CleverSyncSOS.Core.Database.SchoolDb.Entities.Student", "Student")
+                        .WithMany()
+                        .HasForeignKey("StudentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Section");
+
+                    b.Navigation("Student");
+                });
+
+            modelBuilder.Entity("CleverSyncSOS.Core.Database.SchoolDb.Entities.TeacherSection", b =>
+                {
+                    b.HasOne("CleverSyncSOS.Core.Database.SchoolDb.Entities.Section", "Section")
+                        .WithMany("TeacherSections")
+                        .HasForeignKey("SectionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CleverSyncSOS.Core.Database.SchoolDb.Entities.Teacher", "Teacher")
+                        .WithMany()
+                        .HasForeignKey("TeacherId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Section");
+
+                    b.Navigation("Teacher");
+                });
+
+            modelBuilder.Entity("CleverSyncSOS.Core.Database.SchoolDb.Entities.Course", b =>
+                {
+                    b.Navigation("Sections");
+                });
+
+            modelBuilder.Entity("CleverSyncSOS.Core.Database.SchoolDb.Entities.Section", b =>
+                {
+                    b.Navigation("StudentSections");
+
+                    b.Navigation("TeacherSections");
                 });
 #pragma warning restore 612, 618
         }
