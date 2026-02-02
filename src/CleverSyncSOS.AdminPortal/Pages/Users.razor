@@ -8,15 +8,13 @@
 <PageTitle>Users - CleverSync Admin</PageTitle>
 
 <div class="container-fluid">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <div class="d-flex align-items-center">
-            <img src="favicon.png" alt="CleverSync Logo" style="height: 2.5rem; margin-right: 1rem;" />
-            <h1 class="mb-0">Users</h1>
-        </div>
-        <button class="btn btn-primary" @onclick="RefreshUsers">
-            <i class="oi oi-reload"></i> Refresh
-        </button>
-    </div>
+    <PageHeader Title="Users">
+        <Actions>
+            <button class="btn btn-primary" @onclick="RefreshUsers">
+                <i class="oi oi-reload"></i> Refresh
+            </button>
+        </Actions>
+    </PageHeader>
 
     <div class="card mb-4">
         <div class="card-body">
@@ -58,20 +56,12 @@
 
     @if (_loading)
     {
-        <div class="text-center my-5">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Loading...</span>
-            </div>
-            <p class="mt-2 text-muted">Loading users...</p>
-        </div>
+        <LoadingSpinner DisplayMessage="Loading users..." />
     }
     else if (_error != null)
     {
-        <div class="alert alert-danger" role="alert">
-            <h4 class="alert-heading">Error</h4>
-            <p>@_error</p>
-            <button class="btn btn-sm btn-outline-danger" @onclick="LoadUsers">Try Again</button>
-        </div>
+        <ErrorAlert Title="Error" Message="@_error" />
+        <button class="btn btn-sm btn-outline-danger" @onclick="LoadUsers">Try Again</button>
     }
     else if (_users == null || !_users.Any())
     {
@@ -143,8 +133,11 @@
                                 }
                             </td>
                             <td>
-                                <button class="btn btn-sm btn-outline-primary" @onclick="() => ViewUserDetails(user.UserId)">
+                                <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => ViewUserDetails(user.UserId)" title="View Details">
                                     <i class="oi oi-eye"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => EditSessionLimit(user)" title="Edit Session Limit">
+                                    <i class="oi oi-cog"></i>
                                 </button>
                             </td>
                         </tr>
@@ -161,6 +154,58 @@
     }
 </div>
 
+<!-- Session Limit Edit Modal -->
+@if (_showEditModal && _editingUser != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Edit Session Limit</h5>
+                    <button type="button" class="btn-close" @onclick="CloseEditModal"></button>
+                </div>
+                <div class="modal-body">
+                    <p><strong>@_editingUser.DisplayName</strong> (@_editingUser.Email)</p>
+                    <p class="text-muted small">Role: @FormatRole(_editingUser.Role)</p>
+
+                    <div class="mb-3">
+                        <label for="maxSessions" class="form-label">Max Concurrent Sessions</label>
+                        <input type="number" class="form-control" id="maxSessions"
+                               @bind="_editMaxSessions" min="1" max="10"
+                               placeholder="Leave blank for role default" />
+                        <div class="form-text">
+                            Leave blank to use role default (@GetRoleDefaultSessions(_editingUser.Role)).
+                            Valid range: 1-10.
+                        </div>
+                    </div>
+
+                    <div class="alert alert-info small">
+                        <strong>Current effective limit:</strong> @GetEffectiveLimit(_editingUser)
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(_editError))
+                    {
+                        <div class="alert alert-danger">@_editError</div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseEditModal">Cancel</button>
+                    <button type="button" class="btn btn-warning" @onclick="ClearSessionLimit" disabled="@_saving">
+                        Use Role Default
+                    </button>
+                    <button type="button" class="btn btn-primary" @onclick="SaveSessionLimit" disabled="@_saving">
+                        @if (_saving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        Save
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private List<User>? _users;
     private bool _loading = true;
@@ -171,6 +216,13 @@
     private string _statusFilter = "";
     private string _authSourceFilter = "";
     private string _searchFilter = "";
+
+    // Edit modal
+    private bool _showEditModal = false;
+    private User? _editingUser;
+    private int? _editMaxSessions;
+    private bool _saving = false;
+    private string? _editError;
 
     protected override async Task OnInitializedAsync()
     {
@@ -244,6 +296,89 @@
     {
         // Placeholder for user details view
         Console.WriteLine($"View details for user {userId}");
+    }
+
+    private void EditSessionLimit(User user)
+    {
+        _editingUser = user;
+        _editMaxSessions = user.MaxConcurrentSessions;
+        _editError = null;
+        _showEditModal = true;
+    }
+
+    private void CloseEditModal()
+    {
+        _showEditModal = false;
+        _editingUser = null;
+        _editMaxSessions = null;
+        _editError = null;
+    }
+
+    private async Task SaveSessionLimit()
+    {
+        if (_editingUser == null) return;
+
+        _saving = true;
+        _editError = null;
+
+        try
+        {
+            // Validate range
+            if (_editMaxSessions.HasValue && (_editMaxSessions < 1 || _editMaxSessions > 10))
+            {
+                _editError = "Max concurrent sessions must be between 1 and 10.";
+                return;
+            }
+
+            // Update the user
+            var user = await DbContext.Users.FindAsync(_editingUser.UserId);
+            if (user != null)
+            {
+                user.MaxConcurrentSessions = _editMaxSessions;
+                user.UpdatedAt = DateTime.UtcNow;
+                await DbContext.SaveChangesAsync();
+
+                // Refresh the list
+                await LoadUsers();
+                CloseEditModal();
+            }
+        }
+        catch (Exception ex)
+        {
+            _editError = $"Failed to save: {ex.Message}";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task ClearSessionLimit()
+    {
+        _editMaxSessions = null;
+        await SaveSessionLimit();
+    }
+
+    private int GetRoleDefaultSessions(string role)
+    {
+        return role switch
+        {
+            "SuperAdmin" => 5,
+            "DistrictAdmin" => 3,
+            "SchoolAdmin" => 3,
+            "Teacher" => 2,
+            "Student" => 1,
+            _ => 5
+        };
+    }
+
+    private string GetEffectiveLimit(User user)
+    {
+        if (user.MaxConcurrentSessions.HasValue)
+        {
+            return $"{user.MaxConcurrentSessions} (user override)";
+        }
+        return $"{GetRoleDefaultSessions(user.Role)} (role default)";
     }
 
     private string GetRoleBadgeClass(string role)

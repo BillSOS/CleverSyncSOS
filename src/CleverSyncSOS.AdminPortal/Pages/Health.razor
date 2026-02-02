@@ -1,38 +1,38 @@
 @page "/health"
 @attribute [Authorize(Policy = "SuperAdmin")]
 @using Microsoft.Extensions.Diagnostics.HealthChecks
+@using CleverSyncSOS.Core.Database.SessionDb
+@using Microsoft.EntityFrameworkCore
 @inject HealthCheckService HealthCheckService
+@inject IDbContextFactory<SessionDbContext> DbContextFactory
 @inject ILogger<Health> Logger
 
 <PageTitle>System Health - CleverSync Admin</PageTitle>
 
 <div class="container-fluid">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <div class="d-flex align-items-center">
-            <img src="favicon.png" alt="CleverSync Logo" style="height: 2.5rem; margin-right: 1rem;" />
-            <h1 class="mb-0">System Health Status</h1>
-        </div>
-        <button class="btn btn-primary" @onclick="RefreshHealth">
-            <i class="oi oi-reload"></i> Refresh
-        </button>
-    </div>
+    <PageHeader Title="System Health Status">
+        <ChildContent>
+            <a href="/help/troubleshooting" class="help-link ms-2"
+               data-bs-toggle="tooltip" data-bs-placement="bottom"
+               title="Get help with health checks, sync locks, and troubleshooting">
+                <i class="oi oi-question-mark"></i>
+            </a>
+        </ChildContent>
+        <Actions>
+            <button class="btn btn-primary" @onclick="RefreshHealth">
+                <i class="oi oi-reload"></i> Refresh
+            </button>
+        </Actions>
+    </PageHeader>
 
     @if (_loading)
     {
-        <div class="text-center my-5">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Loading...</span>
-            </div>
-            <p class="mt-2 text-muted">Checking system health...</p>
-        </div>
+        <LoadingSpinner DisplayMessage="Checking system health..." />
     }
     else if (_error != null)
     {
-        <div class="alert alert-danger" role="alert">
-            <h4 class="alert-heading">Error</h4>
-            <p>@_error</p>
-            <button class="btn btn-sm btn-outline-danger" @onclick="LoadHealth">Try Again</button>
-        </div>
+        <ErrorAlert Title="Error" Message="@_error" />
+        <button class="btn btn-sm btn-outline-danger" @onclick="LoadHealth">Try Again</button>
     }
     else if (_healthReport != null)
     {
@@ -237,6 +237,141 @@
                 </div>
             </div>
         </div>
+
+        <!-- Sync Locks Section -->
+        <div class="row mt-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">
+                            <i class="oi oi-lock-locked me-2"></i>Sync Locks
+                        </h5>
+                        <div>
+                            <button class="btn btn-sm btn-outline-primary me-2" @onclick="LoadSyncLocks">
+                                <i class="oi oi-reload"></i> Refresh
+                            </button>
+                            @if (_syncLocks != null && _syncLocks.Any())
+                            {
+                                <button class="btn btn-sm btn-danger" @onclick="ShowClearLocksConfirmation">
+                                    <i class="oi oi-trash"></i> Clear All Locks
+                                </button>
+                            }
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        @if (_loadingLocks)
+                        {
+                            <div class="text-center py-3">
+                                <div class="spinner-border spinner-border-sm text-primary" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                                <span class="ms-2">Loading sync locks...</span>
+                            </div>
+                        }
+                        else if (_lockError != null)
+                        {
+                            <div class="alert alert-danger mb-0">@_lockError</div>
+                        }
+                        else if (_syncLocks == null || !_syncLocks.Any())
+                        {
+                            <div class="alert alert-success mb-0">
+                                <i class="oi oi-check me-2"></i>No active sync locks. All sync operations are available.
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="alert alert-warning mb-3">
+                                <strong>@_syncLocks.Count active lock(s) found.</strong>
+                                These locks prevent concurrent sync operations.
+                            </div>
+                            <table class="table table-sm table-bordered">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Scope</th>
+                                        <th>Acquired By</th>
+                                        <th>Initiated By</th>
+                                        <th>Acquired At</th>
+                                        <th>Expires At</th>
+                                        <th>Machine</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var lockEntry in _syncLocks)
+                                    {
+                                        var isExpired = lockEntry.ExpiresAt <= DateTime.UtcNow;
+                                        <tr class="@(isExpired ? "table-secondary" : "")">
+                                            <td><code>@lockEntry.Scope</code></td>
+                                            <td>@lockEntry.AcquiredBy</td>
+                                            <td>@(lockEntry.InitiatedBy ?? "-")</td>
+                                            <td>
+                                                @lockEntry.AcquiredAt.ToString("g") UTC
+                                                <br />
+                                                <small class="text-muted">(@FormatDuration(DateTime.UtcNow - lockEntry.AcquiredAt) ago)</small>
+                                            </td>
+                                            <td>
+                                                @if (isExpired)
+                                                {
+                                                    <span class="text-danger">Expired</span>
+                                                }
+                                                else
+                                                {
+                                                    @lockEntry.ExpiresAt.ToString("g")
+                                                    <text> UTC</text>
+                                                }
+                                            </td>
+                                            <td><small>@(lockEntry.MachineName ?? "-")</small></td>
+                                            <td>
+                                                <button class="btn btn-sm btn-outline-danger"
+                                                        @onclick="() => ClearSingleLock(lockEntry.Scope)">
+                                                    Clear
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+
+                            <div class="mt-3">
+                                <h6>Side Effects of Clearing Locks:</h6>
+                                <ul class="mb-0 text-muted">
+                                    <li><strong>If a sync is actually running:</strong> The sync will continue but another sync could start concurrently, potentially causing data conflicts or duplicate processing.</li>
+                                    <li><strong>If a sync crashed/failed:</strong> Safe to clear. The lock is orphaned and blocking new syncs unnecessarily.</li>
+                                    <li><strong>Expired locks:</strong> These are already inactive and safe to clear (cleanup happens automatically).</li>
+                                </ul>
+                            </div>
+                        }
+
+                        @if (_showClearConfirmation)
+                        {
+                            <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+                                <div class="modal-dialog">
+                                    <div class="modal-content">
+                                        <div class="modal-header bg-danger text-white">
+                                            <h5 class="modal-title">Confirm Clear All Locks</h5>
+                                            <button type="button" class="btn-close btn-close-white" @onclick="() => _showClearConfirmation = false"></button>
+                                        </div>
+                                        <div class="modal-body">
+                                            <p>Are you sure you want to clear <strong>all @_syncLocks?.Count sync locks</strong>?</p>
+                                            <div class="alert alert-warning">
+                                                <strong>Warning:</strong> If a sync is currently running, this may cause data conflicts.
+                                                Only clear locks if you're sure no sync operations are in progress.
+                                            </div>
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-secondary" @onclick="() => _showClearConfirmation = false">Cancel</button>
+                                            <button type="button" class="btn btn-danger" @onclick="ClearAllLocks">
+                                                <i class="oi oi-trash"></i> Clear All Locks
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
     }
 </div>
 
@@ -247,9 +382,16 @@
     private HashSet<string> _expandedChecks = new();
     private bool _showOverallDetails = false;
 
+    // Sync locks state
+    private List<CleverSyncSOS.Core.Database.SessionDb.Entities.SyncLock>? _syncLocks;
+    private bool _loadingLocks = false;
+    private string? _lockError;
+    private bool _showClearConfirmation = false;
+
     protected override async Task OnInitializedAsync()
     {
         await LoadHealth();
+        await LoadSyncLocks();
     }
 
     private async Task LoadHealth()
@@ -320,5 +462,89 @@
             return d.ToString("F2");
 
         return value.ToString() ?? string.Empty;
+    }
+
+    private async Task LoadSyncLocks()
+    {
+        _loadingLocks = true;
+        _lockError = null;
+
+        try
+        {
+            await using var dbContext = await DbContextFactory.CreateDbContextAsync();
+            _syncLocks = await dbContext.SyncLocks.ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            _lockError = $"Failed to load sync locks: {ex.Message}";
+            Logger.LogError(ex, "Failed to load sync locks");
+        }
+        finally
+        {
+            _loadingLocks = false;
+        }
+    }
+
+    private void ShowClearLocksConfirmation()
+    {
+        _showClearConfirmation = true;
+    }
+
+    private async Task ClearAllLocks()
+    {
+        _showClearConfirmation = false;
+
+        try
+        {
+            await using var dbContext = await DbContextFactory.CreateDbContextAsync();
+            var lockCount = await dbContext.SyncLocks.CountAsync();
+
+            if (lockCount > 0)
+            {
+                await dbContext.Database.ExecuteSqlRawAsync("DELETE FROM SyncLock");
+                Logger.LogWarning("Cleared {Count} sync locks via Health page", lockCount);
+            }
+
+            await LoadSyncLocks();
+        }
+        catch (Exception ex)
+        {
+            _lockError = $"Failed to clear locks: {ex.Message}";
+            Logger.LogError(ex, "Failed to clear sync locks");
+        }
+    }
+
+    private async Task ClearSingleLock(string scope)
+    {
+        try
+        {
+            await using var dbContext = await DbContextFactory.CreateDbContextAsync();
+            var lockEntry = await dbContext.SyncLocks.FindAsync(scope);
+
+            if (lockEntry != null)
+            {
+                dbContext.SyncLocks.Remove(lockEntry);
+                await dbContext.SaveChangesAsync();
+                Logger.LogWarning("Cleared sync lock for scope '{Scope}' via Health page", scope);
+            }
+
+            await LoadSyncLocks();
+        }
+        catch (Exception ex)
+        {
+            _lockError = $"Failed to clear lock for {scope}: {ex.Message}";
+            Logger.LogError(ex, "Failed to clear sync lock for scope {Scope}", scope);
+        }
+    }
+
+    private string FormatDuration(TimeSpan duration)
+    {
+        if (duration.TotalDays >= 1)
+            return $"{(int)duration.TotalDays}d {duration.Hours}h";
+        if (duration.TotalHours >= 1)
+            return $"{(int)duration.TotalHours}h {duration.Minutes}m";
+        if (duration.TotalMinutes >= 1)
+            return $"{(int)duration.TotalMinutes}m {duration.Seconds}s";
+        return $"{duration.Seconds}s";
     }
 }

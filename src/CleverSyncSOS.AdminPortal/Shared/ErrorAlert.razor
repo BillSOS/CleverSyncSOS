@@ -1,0 +1,56 @@
+@* ErrorAlert.razor - Reusable error message display component *@
+
+@if (!string.IsNullOrEmpty(Message))
+{
+    <div class="alert @AlertClass @(Dismissible ? "alert-dismissible fade show" : "")" role="alert">
+        @if (!string.IsNullOrEmpty(Title))
+        {
+            <h4 class="alert-heading">@Title</h4>
+        }
+        <p class="mb-0">@Message</p>
+        @if (Dismissible)
+        {
+            <button type="button" class="btn-close" @onclick="OnDismiss" aria-label="Close"></button>
+        }
+    </div>
+}
+
+@code {
+    /// <summary>
+    /// The alert type (Bootstrap alert class).
+    /// Options: danger, warning, info, success
+    /// </summary>
+    [Parameter]
+    public string Type { get; set; } = "danger";
+
+    /// <summary>
+    /// Optional title displayed above the message.
+    /// </summary>
+    [Parameter]
+    public string? Title { get; set; }
+
+    /// <summary>
+    /// The error message to display.
+    /// </summary>
+    [Parameter]
+    public string? Message { get; set; }
+
+    /// <summary>
+    /// Whether the alert can be dismissed with a close button.
+    /// </summary>
+    [Parameter]
+    public bool Dismissible { get; set; }
+
+    /// <summary>
+    /// Event callback when the alert is dismissed.
+    /// </summary>
+    [Parameter]
+    public EventCallback OnDismissed { get; set; }
+
+    private string AlertClass => $"alert-{Type}";
+
+    private async Task OnDismiss()
+    {
+        await OnDismissed.InvokeAsync();
+    }
+}

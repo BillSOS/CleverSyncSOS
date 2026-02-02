@@ -1,0 +1,38 @@
+@* StatusBadge.razor - Reusable badge component for status display *@
+
+<span class="badge @BadgeClass @AdditionalClass">@Text</span>
+
+@code {
+    /// <summary>
+    /// The text to display in the badge.
+    /// </summary>
+    [Parameter, EditorRequired]
+    public string Text { get; set; } = "";
+
+    /// <summary>
+    /// The badge variant (Bootstrap color class).
+    /// Options: primary, secondary, success, danger, warning, info, light, dark
+    /// </summary>
+    [Parameter]
+    public string Variant { get; set; } = "secondary";
+
+    /// <summary>
+    /// Additional CSS classes to apply.
+    /// </summary>
+    [Parameter]
+    public string? AdditionalClass { get; set; }
+
+    private string BadgeClass => $"bg-{Variant}";
+
+    // Static helper methods for common status mappings
+    public static string GetSyncStatusVariant(string? status) => status?.ToLower() switch
+    {
+        "completed" or "success" => "success",
+        "failed" or "error" => "danger",
+        "running" or "in progress" => "primary",
+        "cancelled" => "warning",
+        _ => "secondary"
+    };
+
+    public static string GetActiveStatusVariant(bool isActive) => isActive ? "success" : "secondary";
+}

@@ -1,0 +1,34 @@
+@* LoadingSpinner.razor - Reusable loading indicator component *@
+
+<div class="text-center my-5">
+    <div class="spinner-border @ColorClass" role="status">
+        <span class="visually-hidden">@Message</span>
+    </div>
+    @if (!string.IsNullOrEmpty(DisplayMessage))
+    {
+        <p class="mt-2 text-muted">@DisplayMessage</p>
+    }
+</div>
+
+@code {
+    /// <summary>
+    /// The color variant of the spinner (Bootstrap color class name).
+    /// Options: primary, secondary, success, danger, warning, info, light, dark
+    /// </summary>
+    [Parameter]
+    public string Color { get; set; } = "primary";
+
+    /// <summary>
+    /// Screen reader message for accessibility.
+    /// </summary>
+    [Parameter]
+    public string Message { get; set; } = "Loading...";
+
+    /// <summary>
+    /// Optional visible message displayed below the spinner.
+    /// </summary>
+    [Parameter]
+    public string? DisplayMessage { get; set; }
+
+    private string ColorClass => $"text-{Color}";
+}
