@@ -15,6 +15,7 @@ using CleverSyncSOS.Core.Database.SchoolDb;
 using CleverSyncSOS.Core.Database.SessionDb;
 using CleverSyncSOS.Core.Services;
 using CleverSyncSOS.Core.Sync;
+using CleverSyncSOS.Core.Sync.Handlers;
 using CleverSyncSOS.Core.Sync.Workshop;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -203,6 +204,32 @@ public static class ServiceCollectionExtensions
         // Register WorkshopSyncService for executing workshop sync stored procedure
         // Separated from main SyncService to improve code organization and testability
         services.AddScoped<IWorkshopSyncService, WorkshopSyncService>();
+
+        // Register AuditLogService for tracking user and system actions
+        // Used by both Admin Portal and Azure Functions for audit trail
+        services.AddScoped<IAuditLogService, AuditLogService>();
+
+        // Register SessionCleanupService for cleaning up expired ASP.NET sessions
+        // Called after sync operations and available for manual triggering from Admin Portal
+        services.AddScoped<ISessionCleanupService, SessionCleanupService>();
+
+        // Register LogCleanupService for cleaning up old log entries
+        // Supports both scheduled automatic cleanup and manual admin-triggered cleanup
+        services.AddScoped<ILogCleanupService, LogCleanupService>();
+
+        // Register SyncValidationService for validation and normalization logic
+        // Extracted from SyncService to improve maintainability and testability
+        services.AddSingleton<ISyncValidationService, SyncValidationService>();
+
+        // Register entity sync handlers
+        // Each handler is responsible for syncing a single entity type
+        services.AddScoped<StudentSyncHandler>();
+        services.AddScoped<TeacherSyncHandler>();
+        services.AddScoped<SectionSyncHandler>();
+        services.AddScoped<TermSyncHandler>();
+
+        // Register CleverEventProcessor for processing events from incremental sync
+        services.AddScoped<CleverEventProcessor>();
 
         // Register SyncService for orchestration
         services.AddScoped<ISyncService, SyncService>();

@@ -15,6 +15,7 @@ using CleverSyncSOS.Core.Database.SchoolDb.Entities;
 using CleverSyncSOS.Core.Database.SessionDb;
 using CleverSyncSOS.Core.Database.SessionDb.Entities;
 using CleverSyncSOS.Core.Services;
+using CleverSyncSOS.Core.Sync.Handlers;
 using CleverSyncSOS.Core.Sync.Workshop;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -113,13 +114,20 @@ public class SyncService : ISyncService
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<SyncService> _logger;
 
+    // Entity sync handlers (extracted for better maintainability)
+    private readonly StudentSyncHandler _studentHandler;
+    private readonly TeacherSyncHandler _teacherHandler;
+    private readonly SectionSyncHandler _sectionHandler;
+    private readonly TermSyncHandler _termHandler;
+    private readonly CleverEventProcessor _eventProcessor;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="SyncService"/> class.
     /// </summary>
     /// <remarks>
-    /// <para>All dependencies are injected via the DI container configured in 
+    /// <para>All dependencies are injected via the DI container configured in
     /// <c>ServiceCollectionExtensions.AddCleverSync()</c>.</para>
-    /// 
+    ///
     /// <para><b>Dependency Responsibilities:</b></para>
     /// <list type="bullet">
     ///   <item><description><b>cleverClient</b>: Handles all Clever API communication (auth, pagination, rate limiting)</description></item>
@@ -130,16 +138,9 @@ public class SyncService : ISyncService
     ///   <item><description><b>validationService</b>: Handles data validation and normalization (grade parsing, string comparison)</description></item>
     ///   <item><description><b>serviceProvider</b>: Resolves optional services like session cleanup</description></item>
     ///   <item><description><b>logger</b>: Structured logging for operations and diagnostics</description></item>
+    ///   <item><description><b>Entity handlers</b>: Dedicated handlers for each entity type (Student, Teacher, Section, Term)</description></item>
     /// </list>
     /// </remarks>
-    /// <param name="cleverClient">Client for Clever API communication.</param>
-    /// <param name="sessionDb">SessionDb database context for orchestration data.</param>
-    /// <param name="schoolDbFactory">Factory for creating per-school database connections.</param>
-    /// <param name="localTimeService">Service for timezone-aware time operations.</param>
-    /// <param name="workshopSyncService">Service for workshop synchronization.</param>
-    /// <param name="validationService">Service for data validation and normalization.</param>
-    /// <param name="serviceProvider">DI service provider for optional services.</param>
-    /// <param name="logger">Logger for structured logging.</param>
     public SyncService(
         ICleverApiClient cleverClient,
         SessionDbContext sessionDb,
@@ -148,7 +149,12 @@ public class SyncService : ISyncService
         IWorkshopSyncService workshopSyncService,
         ISyncValidationService validationService,
         IServiceProvider serviceProvider,
-        ILogger<SyncService> logger)
+        ILogger<SyncService> logger,
+        StudentSyncHandler studentHandler,
+        TeacherSyncHandler teacherHandler,
+        SectionSyncHandler sectionHandler,
+        TermSyncHandler termHandler,
+        CleverEventProcessor eventProcessor)
     {
         _cleverClient = cleverClient;
         _sessionDb = sessionDb;
@@ -158,6 +164,11 @@ public class SyncService : ISyncService
         _validationService = validationService;
         _serviceProvider = serviceProvider;
         _logger = logger;
+        _studentHandler = studentHandler;
+        _teacherHandler = teacherHandler;
+        _sectionHandler = sectionHandler;
+        _termHandler = termHandler;
+        _eventProcessor = eventProcessor;
     }
 
     /// <inheritdoc />
@@ -359,7 +370,7 @@ public class SyncService : ISyncService
             });
 
             // Create workshop tracker to detect workshop-relevant changes
-            var workshopTracker = new WorkshopSyncTracker();
+            var workshopTracker = new Workshop.WorkshopSyncTracker();
 
             // Get the Section SyncId for workshop sync (will be populated during sync)
             int sectionSyncId = 0;
@@ -459,14 +470,14 @@ public class SyncService : ISyncService
     /// Performs a full sync with hard-delete for inactive records.
     /// Source: FR-025 - Beginning-of-year sync with hard-delete behavior
     /// </summary>
-    /// <returns>The SyncId to use for workshop sync (Student SyncId)</returns>
+    /// <returns>The SyncId to use for workshop sync (Section SyncId)</returns>
     private async Task<int> PerformFullSyncAsync(
         School school,
         SchoolDbContext schoolDb,
         SyncResult result,
         ISchoolTimeContext timeContext,
         IProgress<SyncProgress>? progress,
-        WorkshopSyncTracker workshopTracker,
+        Workshop.WorkshopSyncTracker workshopTracker,
         CancellationToken cancellationToken)
     {
         _logger.LogInformation("Performing FULL sync for school {SchoolId}", school.SchoolId);
@@ -474,9 +485,27 @@ public class SyncService : ISyncService
         // Capture the sync start time in local time for LastSyncedAt timestamps
         var syncStartTime = timeContext.Now;
 
-        // Clear EF change tracker so UpsertStudentAsync fetches fresh data from DB
-        // This prevents the inactive entities from being cached in memory
+        // Clear EF change tracker so UpsertAsync fetches fresh data from DB
         schoolDb.ChangeTracker.Clear();
+
+        // Pre-load workshop-linked sections for efficient lookup
+        var workshopLinkedSectionIds = await _workshopSyncService.GetWorkshopLinkedSectionIdsAsync(schoolDb, cancellationToken);
+
+        // Create shared sync context for all handlers
+        var context = new SyncContext
+        {
+            School = school,
+            SchoolDb = schoolDb,
+            SessionDb = _sessionDb,
+            Result = result,
+            TimeContext = timeContext,
+            Progress = progress,
+            CancellationToken = cancellationToken,
+            SyncStartTime = syncStartTime,
+            LastModified = syncStartTime,
+            WorkshopTracker = workshopTracker,
+            WorkshopLinkedSectionIds = workshopLinkedSectionIds
+        };
 
         progress?.Report(new SyncProgress
         {
@@ -484,10 +513,9 @@ public class SyncService : ISyncService
             CurrentOperation = "Fetching students from Clever API..."
         });
 
-        // Step 2: Fetch all students and teachers from Clever API
-        // Pass syncStartTime (local time) so next incremental sync has a valid timestamp
-        // Also pass workshopTracker to track grade changes
-        int studentSyncId = await SyncStudentsAsync(school, schoolDb, result, syncStartTime, timeContext, progress, 20, 60, workshopTracker, cancellationToken);
+        // Sync students using handler
+        int studentSyncId = await _studentHandler.SyncAllAsync(context, 20, 60);
+        context.StudentSyncId = studentSyncId;
 
         progress?.Report(new SyncProgress
         {
@@ -497,8 +525,8 @@ public class SyncService : ISyncService
             StudentsFailed = result.StudentsFailed
         });
 
-        // Pass syncStartTime (local time) so next incremental sync has a valid timestamp
-        await SyncTeachersAsync(school, schoolDb, result, syncStartTime, timeContext, progress, 60, 80, cancellationToken);
+        // Sync teachers using handler
+        await _teacherHandler.SyncAllAsync(context, 60, 80);
 
         progress?.Report(new SyncProgress
         {
@@ -508,10 +536,10 @@ public class SyncService : ISyncService
             TeachersProcessed = result.TeachersProcessed
         });
 
-        // Sync sections (includes student enrollments which may trigger workshop sync)
-        int sectionSyncId = await SyncSectionsAsync(school, schoolDb, result, timeContext, progress, 80, 88, workshopTracker, cancellationToken);
+        // Sync sections using handler (includes student enrollments)
+        int sectionSyncId = await _sectionHandler.SyncAllAsync(context, 80, 88);
+        context.SectionSyncId = sectionSyncId;
 
-        // Sync terms (district-level entities stored per-school)
         progress?.Report(new SyncProgress
         {
             PercentComplete = 88,
@@ -521,41 +549,23 @@ public class SyncService : ISyncService
             SectionsProcessed = result.SectionsProcessed
         });
 
-        await SyncTermsAsync(school, schoolDb, result, syncStartTime, timeContext, progress, cancellationToken);
+        // Sync terms using handler
+        await _termHandler.SyncAllAsync(context, 88, 92);
 
-        // Step 3: Soft-delete students, teachers, and terms not seen in this sync
-        // Records not seen will have LastSyncedAt < syncStartTime
-        var orphanedStudents = await schoolDb.Students
-            .Where(s => s.LastSyncedAt < syncStartTime && s.DeletedAt == null)
-            .ToListAsync(cancellationToken);
-        var orphanedTeachers = await schoolDb.Teachers
-            .Where(t => t.LastSyncedAt < syncStartTime && t.DeletedAt == null)
-            .ToListAsync(cancellationToken);
-        var orphanedTerms = await schoolDb.Terms
-            .Where(t => t.LastSyncedAt < syncStartTime && t.DeletedAt == null)
-            .ToListAsync(cancellationToken);
+        // Detect and soft-delete orphaned entities using handlers
+        var changeTracker = new ChangeTracker(_sessionDb, _logger);
+        await _studentHandler.DetectOrphansAsync(context, studentSyncId, changeTracker);
+        await _teacherHandler.DetectOrphansAsync(context, studentSyncId, changeTracker);
+        await _termHandler.DetectOrphansAsync(context, studentSyncId, changeTracker);
+        await changeTracker.SaveChangesAsync(cancellationToken);
 
-        foreach (var student in orphanedStudents)
-        {
-            student.DeletedAt = syncStartTime;
-            student.UpdatedAt = syncStartTime;
-        }
-        foreach (var teacher in orphanedTeachers)
-        {
-            teacher.DeletedAt = syncStartTime;
-            teacher.UpdatedAt = syncStartTime;
-        }
-        foreach (var term in orphanedTerms)
-        {
-            term.DeletedAt = syncStartTime;
-            term.UpdatedAt = syncStartTime;
-        }
-
-        result.StudentsDeleted = orphanedStudents.Count;
-        result.TeachersDeleted = orphanedTeachers.Count;
-        result.TermsDeleted = orphanedTerms.Count;
-
-        await schoolDb.SaveChangesAsync(cancellationToken);
+        // Count orphaned entities for reporting
+        result.StudentsDeleted = await schoolDb.Students
+            .CountAsync(s => s.DeletedAt >= syncStartTime && s.UpdatedAt >= syncStartTime, cancellationToken);
+        result.TeachersDeleted = await schoolDb.Teachers
+            .CountAsync(t => t.DeletedAt >= syncStartTime && t.UpdatedAt >= syncStartTime, cancellationToken);
+        result.TermsDeleted = await schoolDb.Terms
+            .CountAsync(t => t.DeletedAt >= syncStartTime && t.UpdatedAt >= syncStartTime && !t.IsManual, cancellationToken);
 
         _logger.LogInformation(
             "Full sync complete for school {SchoolId}: Soft-deleted {StudentsDeleted} students, {TeachersDeleted} teachers, {TermsDeleted} terms",
@@ -620,7 +630,7 @@ public class SyncService : ISyncService
         DateTime? lastModified,
         ISchoolTimeContext timeContext,
         IProgress<SyncProgress>? progress,
-        WorkshopSyncTracker workshopTracker,
+        Workshop.WorkshopSyncTracker workshopTracker,
         CancellationToken cancellationToken)
     {
         _logger.LogInformation("Performing INCREMENTAL sync for school {SchoolId} using Events API",
@@ -651,11 +661,28 @@ public class SyncService : ISyncService
             // Events API not available - use data API with change detection
             _logger.LogInformation("Events API not available for school {SchoolId}. Using data API with change detection.", school.SchoolId);
 
-            // Fetch all students and teachers without marking them inactive
-            // The UpsertStudentAsync method will detect actual changes
-            // Pass workshopTracker to track grade changes
-            int studentSyncId = await SyncStudentsAsync(school, schoolDb, result, lastModified, timeContext, progress, 10, 60, workshopTracker, cancellationToken);
-            await SyncTeachersAsync(school, schoolDb, result, lastModified, timeContext, progress, 60, 100, cancellationToken);
+            // Pre-load workshop-linked sections
+            var fallbackWorkshopSectionIds = await _workshopSyncService.GetWorkshopLinkedSectionIdsAsync(schoolDb, cancellationToken);
+
+            // Create sync context for handlers
+            var fallbackContext = new SyncContext
+            {
+                School = school,
+                SchoolDb = schoolDb,
+                SessionDb = _sessionDb,
+                Result = result,
+                TimeContext = timeContext,
+                Progress = progress,
+                CancellationToken = cancellationToken,
+                SyncStartTime = timeContext.Now,
+                LastModified = lastModified,
+                WorkshopTracker = workshopTracker,
+                WorkshopLinkedSectionIds = fallbackWorkshopSectionIds
+            };
+
+            // Use handlers for data API fallback
+            int studentSyncId = await _studentHandler.SyncAllAsync(fallbackContext, 10, 60);
+            await _teacherHandler.SyncAllAsync(fallbackContext, 60, 100);
 
             _logger.LogInformation("Incremental sync complete using data API. Students: {Processed} processed, {Updated} updated",
                 result.StudentsProcessed, result.StudentsUpdated);
@@ -747,7 +774,23 @@ public class SyncService : ISyncService
         // Pre-load workshop-linked sections for efficient lookup during section event processing
         var workshopLinkedSectionIds = await _workshopSyncService.GetWorkshopLinkedSectionIdsAsync(schoolDb, cancellationToken);
 
-        // Process events in chronological order (they're already sorted oldest to newest)
+        // Create sync context for event processor
+        var eventContext = new SyncContext
+        {
+            School = school,
+            SchoolDb = schoolDb,
+            SessionDb = _sessionDb,
+            Result = result,
+            TimeContext = timeContext,
+            Progress = progress,
+            CancellationToken = cancellationToken,
+            SyncStartTime = timeContext.Now,
+            LastModified = lastModified,
+            WorkshopTracker = workshopTracker,
+            WorkshopLinkedSectionIds = workshopLinkedSectionIds
+        };
+
+        // Process events in chronological order using event processor
         string? latestEventId = null;
         DateTime? latestEventTimestamp = null;
         int eventsProcessed = 0;
@@ -755,11 +798,11 @@ public class SyncService : ISyncService
         {
             try
             {
-                await ProcessEventAsync(school, schoolDb, evt, result, eventSyncHistory.SyncId, changeTracker, timeContext, workshopTracker, workshopLinkedSectionIds, cancellationToken);
-                latestEventId = evt.Id; // Track the latest event ID we've processed
+                await _eventProcessor.ProcessEventAsync(eventContext, evt, eventSyncHistory.SyncId, changeTracker);
+                latestEventId = evt.Id;
                 if (evt.Created.HasValue)
                 {
-                    latestEventTimestamp = evt.Created.Value; // Track timestamp of the latest event
+                    latestEventTimestamp = evt.Created.Value;
                 }
                 eventsProcessed++;
 
@@ -789,7 +832,7 @@ public class SyncService : ISyncService
             {
                 _logger.LogError(ex, "Failed to process event {EventId} (type: {EventType}) for school {SchoolId}",
                     evt.Id, evt.Type, school.SchoolId);
-                result.StudentsFailed++; // Count as failed (could be student or teacher)
+                result.StudentsFailed++;
             }
         }
 
@@ -845,968 +888,6 @@ public class SyncService : ISyncService
         return eventSyncHistory.SyncId;
     }
 
-    /// <summary>
-    /// Processes a single event from Clever's Events API.
-    /// Handles created, updated, and deleted events for students, teachers, and sections.
-    /// </summary>
-    private async Task ProcessEventAsync(
-        School school,
-        SchoolDbContext schoolDb,
-        CleverEvent evt,
-        SyncResult result,
-        int syncId,
-        ChangeTracker changeTracker,
-        ISchoolTimeContext timeContext,
-        WorkshopSyncTracker workshopTracker,
-        HashSet<int> workshopLinkedSectionIds,
-        CancellationToken cancellationToken)
-    {
-        // Get object type from event data, falling back to extracting from event Type field
-        // evt.Data.Object reads from the "object" field in the data wrapper (e.g., "user", "section")
-        // evt.ObjectType extracts from the Type field (e.g., "sections" from "sections.updated")
-        var objectType = evt.Data.Object;
-        if (string.IsNullOrEmpty(objectType))
-        {
-            // Fall back to extracting from event Type and normalize to singular form
-            objectType = evt.ObjectType?.TrimEnd('s') ?? string.Empty;
-        }
-
-        // Extract action type from event Type field (e.g., "created" from "sections.created")
-        var eventType = evt.ActionType;
-        var eventsSummary = result.EventsSummary;
-
-        // Track total events processed
-        if (eventsSummary != null)
-        {
-            eventsSummary.TotalEventsProcessed++;
-        }
-
-        // DIAGNOSTIC: Log every event being processed (not just debug level)
-        _logger.LogInformation("Processing event {EventId}: Type={EventType}, ObjectType={ObjectType}, ObjectId={ObjectId}",
-            evt.Id, evt.Type, objectType, evt.Data.Id);
-
-        // DIAGNOSTIC: Log raw data presence
-        var hasRawData = evt.Data.RawData != null && evt.Data.RawData.Value.ValueKind != System.Text.Json.JsonValueKind.Undefined;
-        _logger.LogInformation("DIAGNOSTIC: Event {EventId} RawData present={HasRawData}, ValueKind={ValueKind}",
-            evt.Id, hasRawData,
-            evt.Data.RawData?.ValueKind.ToString() ?? "null");
-
-        // Check for raw data presence
-        if (!hasRawData)
-        {
-            _logger.LogWarning("Event {EventId} has no data (RawData is null or undefined). This may indicate a model mismatch with Clever API. Skipping.", evt.Id);
-            return;
-        }
-
-        // Get the raw data element directly - after CleverEvent model fix, RawData IS the data (no wrapper)
-        // In Clever Events API v3.0, the "object" field contains the actual user/section data directly
-        var dataElement = evt.Data.RawData.Value;
-        var rawDataJson = dataElement.GetRawText();
-
-        _logger.LogInformation("DIAGNOSTIC: Event {EventId} data JSON (first 500 chars): {Json}",
-            evt.Id, rawDataJson.Length > 500 ? rawDataJson.Substring(0, 500) + "..." : rawDataJson);
-
-        if (dataElement.ValueKind != System.Text.Json.JsonValueKind.Object)
-        {
-            _logger.LogWarning("Event {EventId} has invalid data structure (not an object). Skipping.", evt.Id);
-            return;
-        }
-
-        // Handle different object types
-        // District events are logged but not processed (they don't map to school-level data)
-        // Course events are also skipped - we only sync users and sections
-        if (objectType == "course" || objectType == "district")
-        {
-            _logger.LogDebug("Event {EventId} is a {ObjectType} event - skipping (not synced)", evt.Id, objectType);
-            if (eventsSummary != null) eventsSummary.EventsSkipped++;
-            return;
-        }
-
-        // Section events don't have roles - handle them in the section block below
-        // User events need role validation
-        string? role = null;
-        if (objectType == "user")
-        {
-            _logger.LogInformation("DIAGNOSTIC: User event detected for {EventId}. Checking roles...", evt.Id);
-
-            // For user events, determine if this is a student or teacher based on roles object
-            // Clever v3.0 returns roles as an object: { "student": {...} } or { "teacher": {...} }
-            // NOT as an array like older versions
-            if (dataElement.TryGetProperty("roles", out var rolesElement))
-            {
-                // Check if roles contains a "student" property
-                if (rolesElement.TryGetProperty("student", out _))
-                {
-                    role = "student";
-                }
-                // Check if roles contains a "teacher" property
-                else if (rolesElement.TryGetProperty("teacher", out _))
-                {
-                    role = "teacher";
-                }
-                // Fallback: check if roles is an array (older format)
-                else if (rolesElement.ValueKind == System.Text.Json.JsonValueKind.Array && rolesElement.GetArrayLength() > 0)
-                {
-                    role = rolesElement[0].TryGetProperty("role", out var roleElement) ? roleElement.GetString() : null;
-                }
-            }
-
-            _logger.LogDebug("Event {EventId}: Detected role={Role} for user event", evt.Id, role ?? "NULL");
-
-            if (string.IsNullOrEmpty(role))
-            {
-                _logger.LogDebug("Event {EventId} ({ObjectType}) has no role. Skipping.", evt.Id, objectType);
-                if (eventsSummary != null) eventsSummary.EventsSkipped++;
-                return;
-            }
-        }
-
-        // Get the data JSON for deserialization - dataElement IS the actual user/section object
-        var innerDataJson = rawDataJson;
-
-        // Handle user events (students/teachers) based on role
-        if (objectType == "user" && !string.IsNullOrEmpty(role))
-        {
-            switch (eventType.ToLower())
-            {
-                case "created":
-                    if (role == "student")
-                    {
-                        var student = System.Text.Json.JsonSerializer.Deserialize<CleverStudent>(innerDataJson);
-                        if (student != null)
-                        {
-                            result.StudentsProcessed++;
-                            bool hasChanges = await UpsertStudentAsync(schoolDb, student, syncId, changeTracker, timeContext, cancellationToken);
-                            if (hasChanges)
-                            {
-                                result.StudentsUpdated++;
-                            }
-                            if (eventsSummary != null) eventsSummary.StudentCreated++;
-                        }
-                    }
-                    else if (role == "teacher")
-                    {
-                        var teacher = System.Text.Json.JsonSerializer.Deserialize<CleverTeacher>(innerDataJson);
-                        if (teacher != null)
-                        {
-                            result.TeachersProcessed++;
-                            bool hasChanges = await UpsertTeacherAsync(schoolDb, teacher, syncId, changeTracker, timeContext, cancellationToken);
-                            if (hasChanges)
-                            {
-                                result.TeachersUpdated++;
-                            }
-                            if (eventsSummary != null) eventsSummary.TeacherCreated++;
-                        }
-                    }
-                    break;
-
-                case "updated":
-                    if (role == "student")
-                    {
-                        // DIAGNOSTIC: Log the raw JSON being deserialized
-                        _logger.LogInformation(
-                            "STUDENT UPDATE DIAGNOSTIC: EventId={EventId}, InnerDataJson={InnerDataJson}",
-                            evt.Id, innerDataJson);
-
-                        var student = System.Text.Json.JsonSerializer.Deserialize<CleverStudent>(innerDataJson);
-                        if (student != null)
-                        {
-                            // DIAGNOSTIC: Log the deserialized student data
-                            _logger.LogInformation(
-                                "STUDENT DESERIALIZED: Id={Id}, FirstName={FirstName}, LastName={LastName}, Name.First={NameFirst}, Name.Last={NameLast}",
-                                student.Id, student.Name?.First ?? "NULL", student.Name?.Last ?? "NULL",
-                                student.Name?.First ?? "NULL", student.Name?.Last ?? "NULL");
-
-                            result.StudentsProcessed++;
-                            bool hasChanges = await UpsertStudentAsync(schoolDb, student, syncId, changeTracker, timeContext, cancellationToken);
-
-                            // DIAGNOSTIC: Log whether changes were detected
-                            _logger.LogInformation(
-                                "STUDENT UPSERT RESULT: Id={Id}, HasChanges={HasChanges}",
-                                student.Id, hasChanges);
-
-                            if (hasChanges)
-                            {
-                                result.StudentsUpdated++;
-                            }
-                            if (eventsSummary != null) eventsSummary.StudentUpdated++;
-                        }
-                        else
-                        {
-                            _logger.LogWarning("STUDENT DESERIALIZATION FAILED: EventId={EventId}", evt.Id);
-                        }
-                    }
-                    else if (role == "teacher")
-                    {
-                        var teacher = System.Text.Json.JsonSerializer.Deserialize<CleverTeacher>(innerDataJson);
-                        if (teacher != null)
-                        {
-                            result.TeachersProcessed++;
-                            bool hasChanges = await UpsertTeacherAsync(schoolDb, teacher, syncId, changeTracker, timeContext, cancellationToken);
-                            if (hasChanges)
-                            {
-                                result.TeachersUpdated++;
-                            }
-                            if (eventsSummary != null) eventsSummary.TeacherUpdated++;
-                        }
-                    }
-                    break;
-
-                case "deleted":
-                    var now = timeContext.Now;
-                    if (role == "student")
-                    {
-                        var studentId = evt.Data.Id;
-                        var student = await schoolDb.Students
-                            .FirstOrDefaultAsync(s => s.CleverStudentId == studentId, cancellationToken);
-                        if (student != null && student.DeletedAt == null)
-                        {
-                            student.DeletedAt = now;
-                            student.UpdatedAt = now;
-                            student.LastSyncedAt = now;
-                            await schoolDb.SaveChangesAsync(cancellationToken);
-                            result.StudentsDeleted++;
-                            _logger.LogDebug("Soft-deleted student {CleverStudentId}", studentId);
-                        }
-                        if (eventsSummary != null) eventsSummary.StudentDeleted++;
-                    }
-                    else if (role == "teacher")
-                    {
-                        var teacherId = evt.Data.Id;
-                        var teacher = await schoolDb.Teachers
-                            .FirstOrDefaultAsync(t => t.CleverTeacherId == teacherId, cancellationToken);
-                        if (teacher != null && teacher.DeletedAt == null)
-                        {
-                            teacher.DeletedAt = now;
-                            teacher.UpdatedAt = now;
-                            teacher.LastSyncedAt = now;
-                            await schoolDb.SaveChangesAsync(cancellationToken);
-                            result.TeachersDeleted++;
-                            _logger.LogDebug("Soft-deleted teacher {CleverTeacherId}", teacherId);
-                        }
-                        if (eventsSummary != null) eventsSummary.TeacherDeleted++;
-                    }
-                    break;
-            }
-        }
-        // Handle section events
-        else if (objectType == "section")
-        {
-            try
-            {
-                var cleverSection = System.Text.Json.JsonSerializer.Deserialize<CleverSection>(innerDataJson);
-                if (cleverSection != null)
-                {
-                    result.SectionsProcessed++;
-
-                    var sectionNow = timeContext.Now;
-                    switch (eventType.ToLower())
-                    {
-                        case "created":
-                            var existingSectionForCreate = await schoolDb.Sections
-                                .FirstOrDefaultAsync(s => s.CleverSectionId == cleverSection.Id, cancellationToken);
-
-                            var sectionEntityCreate = new Section
-                            {
-                                CleverSectionId = cleverSection.Id,
-                                SectionName = cleverSection.Name,
-                                Period = cleverSection.Period,
-                                Subject = cleverSection.Subject,
-                                TermId = cleverSection.TermId,
-                                CreatedAt = sectionNow,
-                                UpdatedAt = sectionNow,
-                                LastEventReceivedAt = sectionNow
-                            };
-
-                            if (existingSectionForCreate == null)
-                            {
-                                schoolDb.Sections.Add(sectionEntityCreate);
-                                changeTracker.TrackSectionChange(syncId, null, sectionEntityCreate, "Created");
-                                result.SectionsUpdated++;
-                            }
-                            else
-                            {
-                                existingSectionForCreate.SectionName = sectionEntityCreate.SectionName;
-                                existingSectionForCreate.Period = sectionEntityCreate.Period;
-                                existingSectionForCreate.Subject = sectionEntityCreate.Subject;
-                                existingSectionForCreate.TermId = sectionEntityCreate.TermId;
-                                existingSectionForCreate.UpdatedAt = sectionNow;
-                                existingSectionForCreate.LastEventReceivedAt = sectionNow;
-                                existingSectionForCreate.DeletedAt = null; // Reactivate if deleted
-                                changeTracker.TrackSectionChange(syncId, existingSectionForCreate, sectionEntityCreate, "Updated");
-                                result.SectionsUpdated++;
-                            }
-
-                            var sectionForCreateAssoc = existingSectionForCreate ?? sectionEntityCreate;
-                            if (sectionForCreateAssoc.SectionId > 0)
-                            {
-                                await SyncSectionTeachersAsync(schoolDb, sectionForCreateAssoc, cleverSection.Teachers, cleverSection.Teacher, timeContext, cancellationToken);
-                                await SyncSectionStudentsAsync(schoolDb, sectionForCreateAssoc, cleverSection.Students, timeContext, cancellationToken, workshopLinkedSectionIds, workshopTracker);
-                            }
-
-                            await schoolDb.SaveChangesAsync(cancellationToken);
-                            if (eventsSummary != null) eventsSummary.SectionCreated++;
-                            break;
-
-                        case "updated":
-                            var existingSectionForUpdate = await schoolDb.Sections
-                                .FirstOrDefaultAsync(s => s.CleverSectionId == cleverSection.Id, cancellationToken);
-
-                            var sectionEntityUpdate = new Section
-                            {
-                                CleverSectionId = cleverSection.Id,
-                                SectionName = cleverSection.Name,
-                                Period = cleverSection.Period,
-                                Subject = cleverSection.Subject,
-                                TermId = cleverSection.TermId,
-                                CreatedAt = sectionNow,
-                                UpdatedAt = sectionNow,
-                                LastEventReceivedAt = sectionNow
-                            };
-
-                            if (existingSectionForUpdate == null)
-                            {
-                                schoolDb.Sections.Add(sectionEntityUpdate);
-                                changeTracker.TrackSectionChange(syncId, null, sectionEntityUpdate, "Created");
-                                result.SectionsUpdated++;
-                            }
-                            else
-                            {
-                                existingSectionForUpdate.SectionName = sectionEntityUpdate.SectionName;
-                                existingSectionForUpdate.Period = sectionEntityUpdate.Period;
-                                existingSectionForUpdate.Subject = sectionEntityUpdate.Subject;
-                                existingSectionForUpdate.TermId = sectionEntityUpdate.TermId;
-                                existingSectionForUpdate.UpdatedAt = sectionNow;
-                                existingSectionForUpdate.LastEventReceivedAt = sectionNow;
-                                existingSectionForUpdate.DeletedAt = null; // Reactivate if deleted
-                                changeTracker.TrackSectionChange(syncId, existingSectionForUpdate, sectionEntityUpdate, "Updated");
-                                result.SectionsUpdated++;
-                            }
-
-                            var sectionForUpdateAssoc = existingSectionForUpdate ?? sectionEntityUpdate;
-                            if (sectionForUpdateAssoc.SectionId > 0)
-                            {
-                                await SyncSectionTeachersAsync(schoolDb, sectionForUpdateAssoc, cleverSection.Teachers, cleverSection.Teacher, timeContext, cancellationToken);
-                                await SyncSectionStudentsAsync(schoolDb, sectionForUpdateAssoc, cleverSection.Students, timeContext, cancellationToken, workshopLinkedSectionIds, workshopTracker);
-                            }
-
-                            await schoolDb.SaveChangesAsync(cancellationToken);
-                            if (eventsSummary != null) eventsSummary.SectionUpdated++;
-                            break;
-
-                        case "deleted":
-                            var sectionToDelete = await schoolDb.Sections
-                                .FirstOrDefaultAsync(s => s.CleverSectionId == cleverSection.Id, cancellationToken);
-                            if (sectionToDelete != null && sectionToDelete.DeletedAt == null)
-                            {
-                                sectionToDelete.DeletedAt = sectionNow;
-                                sectionToDelete.UpdatedAt = sectionNow;
-                                sectionToDelete.LastEventReceivedAt = sectionNow;
-                                await schoolDb.SaveChangesAsync(cancellationToken);
-                                changeTracker.TrackSectionChange(syncId, sectionToDelete, sectionToDelete, "Deleted");
-                                _logger.LogDebug("Soft-deleted section {CleverSectionId}", cleverSection.Id);
-                            }
-                            if (eventsSummary != null) eventsSummary.SectionDeleted++;
-                            break;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to process section event {EventId}", evt.Id);
-                result.SectionsFailed++;
-            }
-        }
-        // Handle term events
-        else if (objectType == "term")
-        {
-            try
-            {
-                var cleverTerm = System.Text.Json.JsonSerializer.Deserialize<CleverTerm>(innerDataJson);
-                if (cleverTerm != null)
-                {
-                    result.TermsProcessed++;
-
-                    var termNow = timeContext.Now;
-                    switch (eventType.ToLower())
-                    {
-                        case "created":
-                            var existingTermForCreate = await schoolDb.Terms
-                                .FirstOrDefaultAsync(t => t.CleverTermId == cleverTerm.Id, cancellationToken);
-
-                            // Parse dates from ISO 8601 strings
-                            DateTime? startDate = null;
-                            DateTime? endDate = null;
-                            if (!string.IsNullOrEmpty(cleverTerm.StartDate) && DateTime.TryParse(cleverTerm.StartDate, out var parsedStart))
-                                startDate = parsedStart;
-                            if (!string.IsNullOrEmpty(cleverTerm.EndDate) && DateTime.TryParse(cleverTerm.EndDate, out var parsedEnd))
-                                endDate = parsedEnd;
-
-                            var termEntityCreate = new Term
-                            {
-                                CleverTermId = cleverTerm.Id,
-                                CleverDistrictId = cleverTerm.District,
-                                Name = cleverTerm.Name,
-                                StartDate = startDate,
-                                EndDate = endDate,
-                                CreatedAt = termNow,
-                                UpdatedAt = termNow,
-                                LastEventReceivedAt = termNow,
-                                LastSyncedAt = termNow
-                            };
-
-                            if (existingTermForCreate == null)
-                            {
-                                schoolDb.Terms.Add(termEntityCreate);
-                                changeTracker.TrackTermChange(syncId, null, termEntityCreate, "Created");
-                                result.TermsUpdated++;
-                            }
-                            else
-                            {
-                                // Term exists - update it and reactivate if deleted (restoration)
-                                existingTermForCreate.Name = termEntityCreate.Name;
-                                existingTermForCreate.StartDate = startDate;
-                                existingTermForCreate.EndDate = endDate;
-                                existingTermForCreate.UpdatedAt = termNow;
-                                existingTermForCreate.LastEventReceivedAt = termNow;
-                                existingTermForCreate.LastSyncedAt = termNow;
-                                if (existingTermForCreate.DeletedAt != null)
-                                {
-                                    existingTermForCreate.DeletedAt = null; // Reactivate (restoration)
-                                    _logger.LogInformation("Term {CleverTermId} ({Name}) was restored via created event",
-                                        cleverTerm.Id, cleverTerm.Name);
-                                }
-                                changeTracker.TrackTermChange(syncId, existingTermForCreate, termEntityCreate, "Updated");
-                                result.TermsUpdated++;
-                            }
-
-                            await schoolDb.SaveChangesAsync(cancellationToken);
-                            if (eventsSummary != null) eventsSummary.TermCreated++;
-                            break;
-
-                        case "updated":
-                            var existingTermForUpdate = await schoolDb.Terms
-                                .FirstOrDefaultAsync(t => t.CleverTermId == cleverTerm.Id, cancellationToken);
-
-                            // Parse dates
-                            DateTime? updateStartDate = null;
-                            DateTime? updateEndDate = null;
-                            if (!string.IsNullOrEmpty(cleverTerm.StartDate) && DateTime.TryParse(cleverTerm.StartDate, out var parsedUpdateStart))
-                                updateStartDate = parsedUpdateStart;
-                            if (!string.IsNullOrEmpty(cleverTerm.EndDate) && DateTime.TryParse(cleverTerm.EndDate, out var parsedUpdateEnd))
-                                updateEndDate = parsedUpdateEnd;
-
-                            var termEntityUpdate = new Term
-                            {
-                                CleverTermId = cleverTerm.Id,
-                                CleverDistrictId = cleverTerm.District,
-                                Name = cleverTerm.Name,
-                                StartDate = updateStartDate,
-                                EndDate = updateEndDate,
-                                CreatedAt = termNow,
-                                UpdatedAt = termNow,
-                                LastEventReceivedAt = termNow,
-                                LastSyncedAt = termNow
-                            };
-
-                            if (existingTermForUpdate == null)
-                            {
-                                schoolDb.Terms.Add(termEntityUpdate);
-                                changeTracker.TrackTermChange(syncId, null, termEntityUpdate, "Created");
-                                result.TermsUpdated++;
-                            }
-                            else
-                            {
-                                existingTermForUpdate.Name = termEntityUpdate.Name;
-                                existingTermForUpdate.StartDate = updateStartDate;
-                                existingTermForUpdate.EndDate = updateEndDate;
-                                existingTermForUpdate.UpdatedAt = termNow;
-                                existingTermForUpdate.LastEventReceivedAt = termNow;
-                                existingTermForUpdate.LastSyncedAt = termNow;
-                                if (existingTermForUpdate.DeletedAt != null)
-                                {
-                                    existingTermForUpdate.DeletedAt = null; // Reactivate (restoration)
-                                    _logger.LogInformation("Term {CleverTermId} ({Name}) was restored via updated event",
-                                        cleverTerm.Id, cleverTerm.Name);
-                                }
-                                changeTracker.TrackTermChange(syncId, existingTermForUpdate, termEntityUpdate, "Updated");
-                                result.TermsUpdated++;
-                            }
-
-                            await schoolDb.SaveChangesAsync(cancellationToken);
-                            if (eventsSummary != null) eventsSummary.TermUpdated++;
-                            break;
-
-                        case "deleted":
-                            var termToDelete = await schoolDb.Terms
-                                .FirstOrDefaultAsync(t => t.CleverTermId == cleverTerm.Id, cancellationToken);
-                            if (termToDelete != null && termToDelete.DeletedAt == null)
-                            {
-                                termToDelete.DeletedAt = termNow;
-                                termToDelete.UpdatedAt = termNow;
-                                termToDelete.LastEventReceivedAt = termNow;
-                                await schoolDb.SaveChangesAsync(cancellationToken);
-                                result.TermsDeleted++;
-                                _logger.LogDebug("Soft-deleted term {CleverTermId}", cleverTerm.Id);
-                            }
-                            if (eventsSummary != null) eventsSummary.TermDeleted++;
-                            break;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to process term event {EventId}", evt.Id);
-                result.TermsFailed++;
-            }
-        }
-        else
-        {
-            _logger.LogWarning("Unknown object type: {ObjectType} for event {EventId}", objectType, evt.Id);
-            if (eventsSummary != null) eventsSummary.EventsSkipped++;
-        }
-    }
-
-    /// <summary>
-    /// Syncs students from Clever API to school database.
-    /// </summary>
-    /// <returns>The SyncId from the Student SyncHistory record</returns>
-    private async Task<int> SyncStudentsAsync(
-        School school,
-        SchoolDbContext schoolDb,
-        SyncResult result,
-        DateTime? lastModified,
-        ISchoolTimeContext timeContext,
-        IProgress<SyncProgress>? progress,
-        int startPercent,
-        int endPercent,
-        WorkshopSyncTracker? workshopTracker,
-        CancellationToken cancellationToken)
-    {
-        var syncHistory = new SyncHistory
-        {
-            SchoolId = school.SchoolId,
-            EntityType = "Student",
-            SyncType = result.SyncType,
-            SyncStartTime = DateTime.UtcNow,
-            Status = "InProgress",
-            LastSyncTimestamp = lastModified
-        };
-
-        // Save SyncHistory immediately to get the SyncId for change tracking
-        _sessionDb.SyncHistory.Add(syncHistory);
-        await _sessionDb.SaveChangesAsync(cancellationToken);
-
-        // Create change tracker for detailed change logging
-        var changeTracker = new ChangeTracker(_sessionDb, _logger);
-
-        try
-        {
-            // Fetch students from Clever API
-            var cleverStudents = await _cleverClient.GetStudentsAsync(school.CleverSchoolId, lastModified, cancellationToken);
-
-            _logger.LogDebug("Fetched {Count} students from Clever API for school {SchoolId}",
-                cleverStudents.Length, school.SchoolId);
-
-            // Upsert students
-            int totalStudents = cleverStudents.Length;
-            int percentRange = endPercent - startPercent;
-
-            for (int i = 0; i < cleverStudents.Length; i++)
-            {
-                var cleverStudent = cleverStudents[i];
-                try
-                {
-                    result.StudentsProcessed++; // Count every student examined
-                    // Pass workshopTracker to track grade changes
-                    bool hasChanges = await UpsertStudentAsync(schoolDb, cleverStudent, syncHistory.SyncId, changeTracker, timeContext, cancellationToken, workshopTracker);
-                    if (hasChanges)
-                    {
-                        result.StudentsUpdated++; // Only count if actually changed
-                    }
-
-                    // Report progress every 10 students or at the end
-                    if ((i + 1) % 10 == 0 || i == totalStudents - 1)
-                    {
-                        int currentPercent = startPercent + (percentRange * (i + 1) / totalStudents);
-                        progress?.Report(new SyncProgress
-                        {
-                            PercentComplete = currentPercent,
-                            CurrentOperation = $"Processing {result.StudentsProcessed}/{totalStudents} students, {result.StudentsUpdated} updated",
-                            StudentsUpdated = result.StudentsUpdated,
-                            StudentsProcessed = result.StudentsProcessed,
-                            StudentsFailed = result.StudentsFailed
-                        });
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to upsert student {CleverStudentId} for school {SchoolId}",
-                        cleverStudent.Id, school.SchoolId);
-                    result.StudentsFailed++;
-                }
-            }
-
-            // Save all tracked changes
-            await changeTracker.SaveChangesAsync(cancellationToken);
-
-            syncHistory.Status = "Success";
-            syncHistory.RecordsProcessed = result.StudentsProcessed;
-            syncHistory.RecordsUpdated = result.StudentsUpdated;
-            syncHistory.RecordsFailed = result.StudentsFailed;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to sync students for school {SchoolId}", school.SchoolId);
-            syncHistory.Status = "Failed";
-            syncHistory.ErrorMessage = ex.Message;
-            throw;
-        }
-        finally
-        {
-            syncHistory.SyncEndTime = DateTime.UtcNow;
-            await _sessionDb.SaveChangesAsync(cancellationToken);
-        }
-
-        return syncHistory.SyncId;
-    }
-
-    /// <summary>
-    /// Syncs teachers from Clever API to school database.
-    /// </summary>
-    private async Task SyncTeachersAsync(
-        School school,
-        SchoolDbContext schoolDb,
-        SyncResult result,
-        DateTime? lastModified,
-        ISchoolTimeContext timeContext,
-        IProgress<SyncProgress>? progress,
-        int startPercent,
-        int endPercent,
-        CancellationToken cancellationToken)
-    {
-        var syncHistory = new SyncHistory
-        {
-            SchoolId = school.SchoolId,
-            EntityType = "Teacher",
-            SyncType = result.SyncType,
-            SyncStartTime = DateTime.UtcNow,
-            Status = "InProgress",
-            LastSyncTimestamp = lastModified
-        };
-
-        // Save SyncHistory immediately to get the SyncId for change tracking
-        _sessionDb.SyncHistory.Add(syncHistory);
-        await _sessionDb.SaveChangesAsync(cancellationToken);
-
-        // Create change tracker for detailed change logging
-        var changeTracker = new ChangeTracker(_sessionDb, _logger);
-
-        try
-        {
-            // Fetch teachers from Clever API
-            var cleverTeachers = await _cleverClient.GetTeachersAsync(school.CleverSchoolId, lastModified, cancellationToken);
-
-            _logger.LogDebug("Fetched {Count} teachers from Clever API for school {SchoolId}",
-                cleverTeachers.Length, school.SchoolId);
-
-            // Upsert teachers
-            int totalTeachers = cleverTeachers.Length;
-            int percentRange = endPercent - startPercent;
-
-            for (int i = 0; i < cleverTeachers.Length; i++)
-            {
-                var cleverTeacher = cleverTeachers[i];
-                try
-                {
-                    result.TeachersProcessed++; // Count every teacher examined
-                    bool hasChanges = await UpsertTeacherAsync(schoolDb, cleverTeacher, syncHistory.SyncId, changeTracker, timeContext, cancellationToken);
-                    if (hasChanges)
-                    {
-                        result.TeachersUpdated++; // Only count if actually changed
-                    }
-
-                    // Report progress every 10 teachers or at the end
-                    if ((i + 1) % 10 == 0 || i == totalTeachers - 1)
-                    {
-                        int currentPercent = startPercent + (percentRange * (i + 1) / totalTeachers);
-                        progress?.Report(new SyncProgress
-                        {
-                            PercentComplete = currentPercent,
-                            CurrentOperation = $"Processing {result.TeachersProcessed}/{totalTeachers} teachers, {result.TeachersUpdated} updated",
-                            StudentsUpdated = result.StudentsUpdated,
-                            StudentsProcessed = result.StudentsProcessed,
-                            StudentsFailed = result.StudentsFailed,
-                            TeachersUpdated = result.TeachersUpdated,
-                            TeachersProcessed = result.TeachersProcessed,
-                            TeachersFailed = result.TeachersFailed
-                        });
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to upsert teacher {CleverTeacherId} for school {SchoolId}",
-                        cleverTeacher.Id, school.SchoolId);
-                    result.TeachersFailed++;
-                }
-            }
-
-            // Save all tracked changes
-            await changeTracker.SaveChangesAsync(cancellationToken);
-
-            syncHistory.Status = "Success";
-            syncHistory.RecordsProcessed = result.TeachersProcessed;
-            syncHistory.RecordsUpdated = result.TeachersUpdated;
-            syncHistory.RecordsFailed = result.TeachersFailed;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to sync teachers for school {SchoolId}", school.SchoolId);
-            syncHistory.Status = "Failed";
-            syncHistory.ErrorMessage = ex.Message;
-            throw;
-        }
-        finally
-        {
-            syncHistory.SyncEndTime = DateTime.UtcNow;
-            await _sessionDb.SaveChangesAsync(cancellationToken);
-        }
-    }
-
-    /// <summary>
-    /// Upserts a student record (insert if new, update if exists).
-    /// Source: FR-014 - Upsert logic for students
-    /// Syncs fields: FirstName, MiddleName, LastName, Grade, GradeLevel, StudentNumber, StateStudentId
-    /// </summary>
-    /// <param name="schoolDb">School database context</param>
-    /// <param name="cleverStudent">Student data from Clever API</param>
-    /// <param name="syncId">Current sync ID for change tracking</param>
-    /// <param name="changeTracker">Change tracker for audit logging</param>
-    /// <param name="timeContext">Time context for timestamps</param>
-    /// <param name="cancellationToken">Cancellation token</param>
-    /// <param name="workshopTracker">Optional tracker for workshop-relevant changes (grade changes)</param>
-    private async Task<bool> UpsertStudentAsync(
-        SchoolDbContext schoolDb,
-        CleverStudent cleverStudent,
-        int syncId,
-        ChangeTracker changeTracker,
-        ISchoolTimeContext timeContext,
-        CancellationToken cancellationToken,
-        WorkshopSyncTracker? workshopTracker = null)
-    {
-        var student = await schoolDb.Students
-            .FirstOrDefaultAsync(s => s.CleverStudentId == cleverStudent.Id, cancellationToken);
-
-        var now = timeContext.Now;
-        bool hasChanges = false;
-
-        // Parse grade from Clever API (string) to int for database
-        int? parsedGrade = _validationService.ParseGrade(cleverStudent.Grade);
-
-        // Get additional fields from Clever
-        var middleName = cleverStudent.Name.Middle;
-        var stateStudentId = cleverStudent.SisId ?? string.Empty;
-        var gradeLevel = cleverStudent.Grade ?? "0"; // String representation of grade
-
-        if (student == null)
-        {
-            // Insert new student
-            student = new Student
-            {
-                CleverStudentId = cleverStudent.Id,
-                FirstName = cleverStudent.Name.First,
-                MiddleName = middleName,
-                LastName = cleverStudent.Name.Last,
-                Grade = parsedGrade,
-                GradeLevel = gradeLevel,
-                StudentNumber = cleverStudent.StudentNumber ?? string.Empty,
-                StateStudentId = stateStudentId,
-                CreatedAt = now,
-                UpdatedAt = now,
-                LastSyncedAt = now
-            };
-            schoolDb.Students.Add(student);
-            hasChanges = true;
-
-            // Track creation
-            changeTracker.TrackStudentChange(syncId, null, student, "Created");
-        }
-        else
-        {
-            // Always update LastSyncedAt to track that we saw this record
-            student.LastSyncedAt = now;
-
-            // Check if any fields actually changed (treating null and empty string as equivalent)
-            var firstNameChanged = !_validationService.StringsEqual(student.FirstName, cleverStudent.Name.First);
-            var middleNameChanged = !_validationService.StringsEqual(student.MiddleName, middleName);
-            var lastNameChanged = !_validationService.StringsEqual(student.LastName, cleverStudent.Name.Last);
-            var gradeChanged = student.Grade != parsedGrade;
-            var gradeLevelChanged = !_validationService.StringsEqual(student.GradeLevel, gradeLevel);
-            var studentNumberChanged = !_validationService.StringsEqual(student.StudentNumber, cleverStudent.StudentNumber);
-            var stateStudentIdChanged = !_validationService.StringsEqual(student.StateStudentId, stateStudentId);
-            var wasDeleted = student.DeletedAt != null;
-
-            // DIAGNOSTIC: Log comparison details for LastName
-            _logger.LogInformation(
-                "UPSERT COMPARISON: CleverId={CleverId}, DB.LastName=[{DbLastName}], Clever.Name.Last=[{CleverLastName}], LastNameChanged={Changed}",
-                cleverStudent.Id,
-                student.LastName ?? "NULL",
-                cleverStudent.Name?.Last ?? "NULL",
-                lastNameChanged);
-
-            if (firstNameChanged || middleNameChanged || lastNameChanged || gradeChanged ||
-                gradeLevelChanged || studentNumberChanged || stateStudentIdChanged || wasDeleted)
-            {
-                // Track grade changes for workshop sync
-                if (gradeChanged && workshopTracker != null)
-                {
-                    workshopTracker.HasGradeChanges = true;
-                    workshopTracker.StudentGradesChanged++;
-                    _logger.LogDebug(
-                        "Student {StudentId} ({Name}) grade changed from {OldGrade} to {NewGrade}",
-                        student.StudentId, $"{student.FirstName} {student.LastName}",
-                        student.Grade, parsedGrade);
-                }
-
-                // Capture old state before updating
-                var oldStudent = new Student
-                {
-                    CleverStudentId = student.CleverStudentId,
-                    FirstName = student.FirstName,
-                    MiddleName = student.MiddleName,
-                    LastName = student.LastName,
-                    Grade = student.Grade,
-                    GradeLevel = student.GradeLevel,
-                    StudentNumber = student.StudentNumber,
-                    StateStudentId = student.StateStudentId
-                };
-
-                // Update existing student only if changed
-                student.FirstName = cleverStudent.Name.First;
-                student.MiddleName = middleName;
-                student.LastName = cleverStudent.Name.Last;
-                student.Grade = parsedGrade;
-                student.GradeLevel = gradeLevel;
-                student.StudentNumber = cleverStudent.StudentNumber ?? string.Empty;
-                student.StateStudentId = stateStudentId;
-                student.UpdatedAt = now;
-                student.DeletedAt = null; // Reactivate if it was deleted
-                hasChanges = true;
-
-                // Track update with old and new values
-                changeTracker.TrackStudentChange(syncId, oldStudent, student, "Updated");
-            }
-        }
-
-        if (hasChanges)
-        {
-            await schoolDb.SaveChangesAsync(cancellationToken);
-        }
-
-        return hasChanges;
-    }
-
-    /// <summary>
-    /// Upserts a teacher record (insert if new, update if exists).
-    /// Source: FR-014 - Upsert logic for teachers
-    /// Syncs fields: FirstName, LastName, FullName, StaffNumber, TeacherNumber, UserName
-    /// Note: Does NOT sync app-specific fields like PriorityId, Administrator, RoomId, etc.
-    /// </summary>
-    private async Task<bool> UpsertTeacherAsync(
-        SchoolDbContext schoolDb,
-        CleverTeacher cleverTeacher,
-        int syncId,
-        ChangeTracker changeTracker,
-        ISchoolTimeContext timeContext,
-        CancellationToken cancellationToken)
-    {
-        var teacher = await schoolDb.Teachers
-            .FirstOrDefaultAsync(t => t.CleverTeacherId == cleverTeacher.Id, cancellationToken);
-
-        var now = timeContext.Now;
-        bool hasChanges = false;
-
-        // Get fields from Clever API
-        var staffNumber = cleverTeacher.SisId ?? string.Empty;
-        var teacherNumber = cleverTeacher.TeacherNumber;
-        var userName = cleverTeacher.Roles?.Teacher?.Credentials?.DistrictUsername;
-        var fullName = $"{cleverTeacher.Name.First} {cleverTeacher.Name.Last}".Trim();
-
-        if (teacher == null)
-        {
-            // Insert new teacher
-            teacher = new Teacher
-            {
-                CleverTeacherId = cleverTeacher.Id,
-                FirstName = cleverTeacher.Name.First,
-                LastName = cleverTeacher.Name.Last,
-                FullName = fullName,
-                StaffNumber = staffNumber,
-                TeacherNumber = teacherNumber,
-                UserName = userName,
-                CreatedAt = now,
-                UpdatedAt = now,
-                LastSyncedAt = now
-            };
-            schoolDb.Teachers.Add(teacher);
-            hasChanges = true;
-
-            // Track creation
-            changeTracker.TrackTeacherChange(syncId, null, teacher, "Created");
-        }
-        else
-        {
-            // Always update LastSyncedAt to track that we saw this record
-            teacher.LastSyncedAt = now;
-
-            // Check if any fields actually changed (treating null and empty string as equivalent)
-            var firstNameChanged = !_validationService.StringsEqual(teacher.FirstName, cleverTeacher.Name.First);
-            var lastNameChanged = !_validationService.StringsEqual(teacher.LastName, cleverTeacher.Name.Last);
-            var fullNameChanged = !_validationService.StringsEqual(teacher.FullName, fullName);
-            var staffNumberChanged = !_validationService.StringsEqual(teacher.StaffNumber, staffNumber);
-            var teacherNumberChanged = !_validationService.StringsEqual(teacher.TeacherNumber, teacherNumber);
-            var userNameChanged = !_validationService.StringsEqual(teacher.UserName, userName);
-            var wasDeleted = teacher.DeletedAt != null;
-
-            if (firstNameChanged || lastNameChanged || fullNameChanged ||
-                staffNumberChanged || teacherNumberChanged || userNameChanged || wasDeleted)
-            {
-                // Capture old state before updating
-                var oldTeacher = new Teacher
-                {
-                    CleverTeacherId = teacher.CleverTeacherId,
-                    FirstName = teacher.FirstName,
-                    LastName = teacher.LastName,
-                    FullName = teacher.FullName,
-                    StaffNumber = teacher.StaffNumber,
-                    TeacherNumber = teacher.TeacherNumber,
-                    UserName = teacher.UserName
-                };
-
-                // Update existing teacher only if changed
-                teacher.FirstName = cleverTeacher.Name.First;
-                teacher.LastName = cleverTeacher.Name.Last;
-                teacher.FullName = fullName;
-                teacher.StaffNumber = staffNumber;
-                teacher.TeacherNumber = teacherNumber;
-                teacher.UserName = userName;
-                teacher.UpdatedAt = now;
-                teacher.DeletedAt = null; // Reactivate if it was deleted
-                hasChanges = true;
-
-                // Track update with old and new values
-                changeTracker.TrackTeacherChange(syncId, oldTeacher, teacher, "Updated");
-            }
-        }
-
-        if (hasChanges)
-        {
-            await schoolDb.SaveChangesAsync(cancellationToken);
-        }
-
-        return hasChanges;
-    }
-
     /// <inheritdoc />
     public async Task<SyncHistory[]> GetSyncHistoryAsync(
         int schoolId,
@@ -1828,703 +909,5 @@ public class SyncService : ISyncService
             .ToArrayAsync(cancellationToken);
 
         return history;
-    }
-
-    /// <summary>
-    /// Syncs sections from Clever API to school database, including teacher and student associations.
-    /// Includes change detection and workshop-linked section warnings.
-    /// </summary>
-    /// <returns>The SyncId from the Section SyncHistory record for workshop sync</returns>
-    private async Task<int> SyncSectionsAsync(
-        School school,
-        SchoolDbContext schoolDb,
-        SyncResult result,
-        ISchoolTimeContext timeContext,
-        IProgress<SyncProgress>? progress,
-        int startPercent,
-        int endPercent,
-        WorkshopSyncTracker workshopTracker,
-        CancellationToken cancellationToken)
-    {
-        var syncHistory = new SyncHistory
-        {
-            SchoolId = school.SchoolId,
-            EntityType = "Section",
-            SyncType = result.SyncType,
-            SyncStartTime = DateTime.UtcNow,
-            Status = "InProgress",
-            RecordsProcessed = 0
-        };
-
-        _sessionDb.SyncHistory.Add(syncHistory);
-        await _sessionDb.SaveChangesAsync(cancellationToken);
-
-        var changeTracker = new ChangeTracker(_sessionDb, _logger);
-
-        try
-        {
-            var cleverSections = await _cleverClient.GetSectionsAsync(school.CleverSchoolId, cancellationToken);
-
-            _logger.LogDebug("Fetched {Count} sections from Clever API for school {SchoolId}",
-                cleverSections.Length, school.SchoolId);
-
-            // Pre-load all workshop-linked sections for efficient lookup
-            var workshopLinkedSectionIds = await _workshopSyncService.GetWorkshopLinkedSectionIdsAsync(schoolDb, cancellationToken);
-
-            _logger.LogDebug("Found {Count} sections linked to workshops", workshopLinkedSectionIds.Count);
-
-            int totalSections = cleverSections.Length;
-            int percentRange = endPercent - startPercent;
-
-            // Track which sections from Clever we've seen (for detecting deletions)
-            var cleverSectionIds = new HashSet<string>(cleverSections.Select(s => s.Id));
-
-            for (int i = 0; i < cleverSections.Length; i++)
-            {
-                var cleverSection = cleverSections[i];
-                try
-                {
-                    result.SectionsProcessed++;
-
-                    var existingSection = await schoolDb.Sections
-                        .FirstOrDefaultAsync(s => s.CleverSectionId == cleverSection.Id, cancellationToken);
-
-                    if (existingSection == null)
-                    {
-                        // New section - create it
-                        var newSection = new Section
-                        {
-                            CleverSectionId = cleverSection.Id,
-                            SectionName = cleverSection.Name,
-                            Period = cleverSection.Period,
-                            Subject = cleverSection.Subject,
-                            TermId = cleverSection.TermId,
-                            CreatedAt = timeContext.Now,
-                            UpdatedAt = timeContext.Now,
-                            LastEventReceivedAt = timeContext.Now
-                        };
-                        schoolDb.Sections.Add(newSection);
-                        await schoolDb.SaveChangesAsync(cancellationToken);
-                        changeTracker.TrackSectionChange(syncHistory.SyncId, null, newSection, "Created");
-                        result.SectionsUpdated++;
-
-                        // Handle associations for new section
-                        await SyncSectionTeachersAsync(schoolDb, newSection, cleverSection.Teachers, cleverSection.Teacher, timeContext, cancellationToken);
-                        await SyncSectionStudentsAsync(schoolDb, newSection, cleverSection.Students, timeContext, cancellationToken, workshopLinkedSectionIds, workshopTracker);
-                    }
-                    else
-                    {
-                        // Existing section - check for changes
-                        bool hasChanges = await UpsertSectionAsync(
-                            schoolDb, existingSection, cleverSection,
-                            syncHistory.SyncId, changeTracker, workshopLinkedSectionIds, result, timeContext,
-                            cancellationToken);
-
-                        if (hasChanges)
-                        {
-                            result.SectionsUpdated++;
-                        }
-
-                        // Handle associations (always sync to ensure accuracy)
-                        await SyncSectionTeachersAsync(schoolDb, existingSection, cleverSection.Teachers, cleverSection.Teacher, timeContext, cancellationToken);
-                        await SyncSectionStudentsAsync(schoolDb, existingSection, cleverSection.Students, timeContext, cancellationToken, workshopLinkedSectionIds, workshopTracker);
-                    }
-
-                    if ((i + 1) % 50 == 0 || i == totalSections - 1)
-                    {
-                        int currentPercent = startPercent + (percentRange * (i + 1) / totalSections);
-                        progress?.Report(new SyncProgress
-                        {
-                            PercentComplete = currentPercent,
-                            CurrentOperation = $"Processing {result.SectionsProcessed}/{totalSections} sections, {result.SectionsUpdated} updated",
-                            WarningsGenerated = result.WarningsGenerated
-                        });
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to upsert section {CleverSectionId} for school {SchoolId}",
-                        cleverSection.Id, school.SchoolId);
-                    result.SectionsFailed++;
-                }
-            }
-
-            // Check for sections that exist in DB but not in Clever (potential deletions)
-            await CheckForDeletedSectionsAsync(
-                schoolDb, cleverSectionIds, workshopLinkedSectionIds,
-                syncHistory.SyncId, result, timeContext, cancellationToken);
-
-            await changeTracker.SaveChangesAsync(cancellationToken);
-            await schoolDb.SaveChangesAsync(cancellationToken);
-
-            syncHistory.Status = "Success";
-            syncHistory.RecordsProcessed = result.SectionsProcessed;
-            syncHistory.RecordsUpdated = result.SectionsUpdated;
-            syncHistory.RecordsFailed = result.SectionsFailed;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to sync sections for school {SchoolId}", school.SchoolId);
-            syncHistory.Status = "Failed";
-            syncHistory.ErrorMessage = ex.Message;
-            throw;
-        }
-        finally
-        {
-            syncHistory.SyncEndTime = DateTime.UtcNow;
-            await _sessionDb.SaveChangesAsync(cancellationToken);
-        }
-
-        return syncHistory.SyncId;
-    }
-
-    /// <summary>
-    /// Upserts a section with proper change detection.
-    /// Generates warnings for workshop-linked sections that are being modified.
-    /// Syncs fields: SectionName, Period, Subject, TermId
-    /// </summary>
-    private async Task<bool> UpsertSectionAsync(
-        SchoolDbContext schoolDb,
-        Section existingSection,
-        CleverApi.Models.CleverSection cleverSection,
-        int syncId,
-        ChangeTracker changeTracker,
-        HashSet<int> workshopLinkedSectionIds,
-        SyncResult result,
-        ISchoolTimeContext timeContext,
-        CancellationToken cancellationToken)
-    {
-        var now = timeContext.Now;
-        bool hasChanges = false;
-
-        // Check for field changes
-        var sectionNameChanged = !_validationService.StringsEqual(existingSection.SectionName, cleverSection.Name);
-        var periodChanged = !_validationService.StringsEqual(existingSection.Period, cleverSection.Period);
-        var subjectChanged = !_validationService.StringsEqual(existingSection.Subject, cleverSection.Subject);
-        var termIdChanged = !_validationService.StringsEqual(existingSection.TermId, cleverSection.TermId);
-        var wasDeleted = existingSection.DeletedAt != null;
-
-        // Check if this is a workshop-linked section with changes
-        bool isWorkshopLinked = workshopLinkedSectionIds.Contains(existingSection.SectionId);
-
-        if (sectionNameChanged || periodChanged || subjectChanged || termIdChanged || wasDeleted)
-        {
-            hasChanges = true;
-
-            // If workshop-linked and has significant changes, generate warning
-            if (isWorkshopLinked && sectionNameChanged)
-            {
-                await GenerateWorkshopWarningAsync(
-                    schoolDb, existingSection, syncId, "SectionModified",
-                    $"Section '{existingSection.SectionName}' (ID: {existingSection.SectionId}) linked to workshops has been modified. " +
-                    $"Name changed to: '{cleverSection.Name}'",
-                    result, cancellationToken);
-            }
-
-            // Capture old state for change tracking
-            var oldSection = new Section
-            {
-                SectionId = existingSection.SectionId,
-                CleverSectionId = existingSection.CleverSectionId,
-                SectionName = existingSection.SectionName,
-                Period = existingSection.Period,
-                Subject = existingSection.Subject,
-                TermId = existingSection.TermId
-            };
-
-            // Update section
-            existingSection.SectionName = cleverSection.Name;
-            existingSection.Period = cleverSection.Period;
-            existingSection.Subject = cleverSection.Subject;
-            existingSection.TermId = cleverSection.TermId;
-            existingSection.DeletedAt = null; // Reactivate if was deleted
-            existingSection.UpdatedAt = now;
-            existingSection.LastEventReceivedAt = now;
-
-            changeTracker.TrackSectionChange(syncId, oldSection, existingSection, "Updated");
-            await schoolDb.SaveChangesAsync(cancellationToken);
-        }
-
-        return hasChanges;
-    }
-
-    /// <summary>
-    /// Checks for sections that exist in the database but are no longer in Clever.
-    /// Generates warnings for workshop-linked sections that would be deactivated/deleted.
-    /// </summary>
-    private async Task CheckForDeletedSectionsAsync(
-        SchoolDbContext schoolDb,
-        HashSet<string> cleverSectionIds,
-        HashSet<int> workshopLinkedSectionIds,
-        int syncId,
-        SyncResult result,
-        ISchoolTimeContext timeContext,
-        CancellationToken cancellationToken)
-    {
-        // Find active sections in DB that are not in Clever's response
-        var sectionsInDb = await schoolDb.Sections
-            .Where(s => s.DeletedAt == null)
-            .Select(s => new { s.SectionId, s.CleverSectionId, s.SectionName })
-            .ToListAsync(cancellationToken);
-
-        var missingSections = sectionsInDb
-            .Where(s => !cleverSectionIds.Contains(s.CleverSectionId))
-            .ToList();
-
-        var now = timeContext.Now;
-        foreach (var missingSection in missingSections)
-        {
-            if (workshopLinkedSectionIds.Contains(missingSection.SectionId))
-            {
-                // Workshop-linked section would be deleted - generate warning and skip
-                var section = await schoolDb.Sections.FindAsync(new object[] { missingSection.SectionId }, cancellationToken);
-                if (section != null)
-                {
-                    await GenerateWorkshopWarningAsync(
-                        schoolDb, section, syncId, "SectionDeleted",
-                        $"Section '{missingSection.SectionName}' (ID: {missingSection.SectionId}) is linked to workshops but no longer exists in Clever. " +
-                        "The section was NOT deactivated. Manual review required.",
-                        result, cancellationToken);
-
-                    result.SectionsSkippedWorkshopLinked++;
-                    _logger.LogWarning(
-                        "Section {SectionId} ({SectionName}) is linked to workshops but missing from Clever. Skipping deactivation.",
-                        missingSection.SectionId, missingSection.SectionName);
-                }
-            }
-            else
-            {
-                // Not workshop-linked - safe to soft-delete
-                var section = await schoolDb.Sections.FindAsync(new object[] { missingSection.SectionId }, cancellationToken);
-                if (section != null)
-                {
-                    section.DeletedAt = now;
-                    section.UpdatedAt = now;
-                    _logger.LogInformation(
-                        "Soft-deleting section {SectionId} ({SectionName}) - no longer in Clever",
-                        missingSection.SectionId, missingSection.SectionName);
-                }
-            }
-        }
-
-        await schoolDb.SaveChangesAsync(cancellationToken);
-    }
-
-    /// <summary>
-    /// Generates a warning for workshop-linked sections that are being modified or deleted.
-    /// </summary>
-    private async Task GenerateWorkshopWarningAsync(
-        SchoolDbContext schoolDb,
-        Section section,
-        int syncId,
-        string warningType,
-        string message,
-        SyncResult result,
-        CancellationToken cancellationToken)
-    {
-        // Get workshop names for this section
-        var affectedWorkshops = await schoolDb.WorkshopSections
-            .Where(ws => ws.SectionId == section.SectionId)
-            .Include(ws => ws.Workshop)
-            .Select(ws => new { ws.Workshop!.WorkshopId, ws.Workshop.WorkshopName })
-            .ToListAsync(cancellationToken);
-
-        var workshopNames = affectedWorkshops.Select(w => w.WorkshopName).ToList();
-        var workshopJson = System.Text.Json.JsonSerializer.Serialize(
-            affectedWorkshops.Select(w => new { w.WorkshopId, w.WorkshopName }));
-
-        var warning = new Database.SessionDb.Entities.SyncWarning
-        {
-            SyncId = syncId,
-            WarningType = warningType,
-            EntityType = "Section",
-            EntityId = section.SectionId,
-            CleverEntityId = section.CleverSectionId,
-            EntityName = section.SectionName ?? $"Section {section.CleverSectionId}",
-            Message = message,
-            AffectedWorkshops = workshopJson,
-            AffectedWorkshopCount = affectedWorkshops.Count,
-            IsAcknowledged = false,
-            CreatedAt = DateTime.UtcNow
-        };
-
-        _sessionDb.SyncWarnings.Add(warning);
-        await _sessionDb.SaveChangesAsync(cancellationToken);
-
-        // Add to result for immediate visibility
-        var sectionDisplayName = section.SectionName ?? $"Section {section.CleverSectionId}";
-        result.WarningsGenerated++;
-        result.Warnings.Add(new SyncWarningInfo
-        {
-            WarningType = warningType,
-            EntityType = "Section",
-            EntityId = section.SectionId,
-            EntityName = sectionDisplayName,
-            Message = message,
-            AffectedWorkshopNames = workshopNames
-        });
-
-        _logger.LogWarning(
-            "SYNC WARNING [{WarningType}]: Section {SectionId} ({SectionName}) - {Message}. Affects {Count} workshop(s): {Workshops}",
-            warningType, section.SectionId, sectionDisplayName, message, affectedWorkshops.Count,
-            string.Join(", ", workshopNames));
-    }
-
-    /// <summary>
-    /// Gets a human-readable summary of section changes.
-    /// </summary>
-    private static string GetChangeSummary(Section existing, CleverApi.Models.CleverSection clever, bool sectionNameChanged)
-    {
-        var changes = new List<string>();
-        if (sectionNameChanged)
-            changes.Add($"SectionName: '{existing.SectionName}' → '{clever.Name}'");
-        return string.Join(", ", changes);
-    }
-
-    /// <summary>
-    /// Syncs teacher-section associations for a given section.
-    /// </summary>
-    private async Task SyncSectionTeachersAsync(
-        SchoolDbContext schoolDb,
-        Section section,
-        string[] cleverTeacherIds,
-        string? primaryTeacherId,
-        ISchoolTimeContext timeContext,
-        CancellationToken cancellationToken)
-    {
-        // Remove existing associations
-        var existingAssociations = await schoolDb.TeacherSections
-            .Where(ts => ts.SectionId == section.SectionId)
-            .ToListAsync(cancellationToken);
-        schoolDb.TeacherSections.RemoveRange(existingAssociations);
-
-        // Add new associations
-        var now = timeContext.Now;
-        foreach (var cleverTeacherId in cleverTeacherIds ?? Array.Empty<string>())
-        {
-            var teacher = await schoolDb.Teachers
-                .FirstOrDefaultAsync(t => t.CleverTeacherId == cleverTeacherId, cancellationToken);
-
-            if (teacher != null)
-            {
-                var isPrimary = cleverTeacherId == primaryTeacherId;
-                var association = new TeacherSection
-                {
-                    TeacherId = teacher.TeacherId,
-                    SectionId = section.SectionId,
-                    IsPrimary = isPrimary,
-                    CreatedAt = now
-                };
-                schoolDb.TeacherSections.Add(association);
-            }
-            else
-            {
-                _logger.LogWarning("Teacher {CleverTeacherId} not found for section {SectionId}",
-                    cleverTeacherId, section.CleverSectionId);
-            }
-        }
-
-        await schoolDb.SaveChangesAsync(cancellationToken);
-    }
-
-    /// <summary>
-    /// Syncs student-section enrollments for a given section.
-    /// Optionally tracks changes to workshop-linked sections for triggering workshop sync.
-    /// </summary>
-    /// <param name="schoolDb">School database context</param>
-    /// <param name="section">The section to sync enrollments for</param>
-    /// <param name="cleverStudentIds">Student IDs from Clever API</param>
-    /// <param name="timeContext">Time context for timestamps</param>
-    /// <param name="cancellationToken">Cancellation token</param>
-    /// <param name="workshopLinkedSectionIds">Optional set of section IDs linked to workshops</param>
-    /// <param name="workshopTracker">Optional tracker for workshop-relevant changes</param>
-    private async Task SyncSectionStudentsAsync(
-        SchoolDbContext schoolDb,
-        Section section,
-        string[] cleverStudentIds,
-        ISchoolTimeContext timeContext,
-        CancellationToken cancellationToken,
-        HashSet<int>? workshopLinkedSectionIds = null,
-        WorkshopSyncTracker? workshopTracker = null)
-    {
-        var now = timeContext.Now;
-        var incomingStudentIds = cleverStudentIds ?? Array.Empty<string>();
-
-        // Check if this section is linked to workshops
-        var isWorkshopLinkedSection = workshopLinkedSectionIds?.Contains(section.SectionId) ?? false;
-
-        // Get existing enrollments for this section
-        var existingEnrollments = await schoolDb.StudentSections
-            .Where(ss => ss.SectionId == section.SectionId)
-            .Include(ss => ss.Student)
-            .ToListAsync(cancellationToken);
-
-        // Build lookup of existing enrollments by CleverStudentId
-        var existingByCleverStudentId = existingEnrollments
-            .Where(e => e.Student != null)
-            .ToDictionary(e => e.Student.CleverStudentId, e => e);
-
-        // Track which enrollments to keep
-        var enrollmentsToKeep = new HashSet<int>();
-        int studentsAdded = 0;
-
-        // Process incoming enrollments
-        foreach (var cleverStudentId in incomingStudentIds)
-        {
-            var student = await schoolDb.Students
-                .FirstOrDefaultAsync(s => s.CleverStudentId == cleverStudentId, cancellationToken);
-
-            if (student != null)
-            {
-                if (existingByCleverStudentId.TryGetValue(cleverStudentId, out var existingEnrollment))
-                {
-                    // Existing enrollment - keep it
-                    enrollmentsToKeep.Add(existingEnrollment.StudentSectionId);
-                }
-                else
-                {
-                    // Add new enrollment
-                    var enrollment = new StudentSection
-                    {
-                        StudentId = student.StudentId,
-                        SectionId = section.SectionId,
-                        OffCampus = false,
-                        CreatedAt = now
-                    };
-                    schoolDb.StudentSections.Add(enrollment);
-                    studentsAdded++;
-                }
-            }
-            else
-            {
-                _logger.LogWarning("Student {CleverStudentId} not found for section {SectionId}",
-                    cleverStudentId, section.CleverSectionId);
-            }
-        }
-
-        // Remove enrollments no longer in Clever
-        var enrollmentsToRemove = existingEnrollments
-            .Where(e => !enrollmentsToKeep.Contains(e.StudentSectionId))
-            .ToList();
-        int studentsRemoved = enrollmentsToRemove.Count;
-        schoolDb.StudentSections.RemoveRange(enrollmentsToRemove);
-
-        await schoolDb.SaveChangesAsync(cancellationToken);
-
-        // Track workshop-relevant changes if this is a workshop-linked section
-        if (isWorkshopLinkedSection && workshopTracker != null && (studentsAdded > 0 || studentsRemoved > 0))
-        {
-            workshopTracker.HasWorkshopEnrollmentChanges = true;
-            workshopTracker.StudentsAddedToWorkshopSections += studentsAdded;
-            workshopTracker.StudentsRemovedFromWorkshopSections += studentsRemoved;
-
-            _logger.LogDebug(
-                "Workshop-linked section {SectionId} ({SectionName}): {Added} students added, {Removed} students removed",
-                section.SectionId, section.SectionName, studentsAdded, studentsRemoved);
-        }
-    }
-
-    /// <summary>
-    /// Syncs terms from Clever API to school database.
-    /// Terms are district-level entities in Clever but stored per-school for data isolation.
-    /// </summary>
-    /// <remarks>
-    /// <para>Terms endpoint is district-level (/terms), not filtered by school.</para>
-    /// <para>Supports soft-delete and restoration: if a deleted term reappears in Clever, it is reactivated.</para>
-    /// </remarks>
-    private async Task SyncTermsAsync(
-        School school,
-        SchoolDbContext schoolDb,
-        SyncResult result,
-        DateTime syncStartTime,
-        ISchoolTimeContext timeContext,
-        IProgress<SyncProgress>? progress,
-        CancellationToken cancellationToken)
-    {
-        var syncHistory = new SyncHistory
-        {
-            SchoolId = school.SchoolId,
-            EntityType = "Term",
-            SyncType = result.SyncType,
-            SyncStartTime = DateTime.UtcNow,
-            Status = "InProgress",
-            LastSyncTimestamp = syncStartTime
-        };
-
-        _sessionDb.SyncHistory.Add(syncHistory);
-        await _sessionDb.SaveChangesAsync(cancellationToken);
-
-        var changeTracker = new ChangeTracker(_sessionDb, _logger);
-
-        try
-        {
-            // Fetch terms from Clever API (district-level endpoint)
-            var cleverTerms = await _cleverClient.GetTermsAsync(school.CleverSchoolId, cancellationToken);
-
-            _logger.LogDebug("Fetched {Count} terms from Clever API for school {SchoolId}",
-                cleverTerms.Length, school.SchoolId);
-
-            int totalTerms = cleverTerms.Length;
-
-            for (int i = 0; i < cleverTerms.Length; i++)
-            {
-                var cleverTerm = cleverTerms[i];
-                try
-                {
-                    result.TermsProcessed++;
-                    bool hasChanges = await UpsertTermAsync(schoolDb, cleverTerm, syncHistory.SyncId, changeTracker, syncStartTime, cancellationToken);
-                    if (hasChanges)
-                    {
-                        result.TermsUpdated++;
-                    }
-
-                    // Report progress every 10 terms or at the end
-                    if ((i + 1) % 10 == 0 || i == totalTerms - 1)
-                    {
-                        progress?.Report(new SyncProgress
-                        {
-                            CurrentOperation = $"Processing {result.TermsProcessed}/{totalTerms} terms, {result.TermsUpdated} updated",
-                            TermsProcessed = result.TermsProcessed,
-                            TermsUpdated = result.TermsUpdated,
-                            TermsFailed = result.TermsFailed
-                        });
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to upsert term {CleverTermId} for school {SchoolId}",
-                        cleverTerm.Id, school.SchoolId);
-                    result.TermsFailed++;
-                }
-            }
-
-            // Save all tracked changes
-            await changeTracker.SaveChangesAsync(cancellationToken);
-
-            syncHistory.Status = "Success";
-            syncHistory.RecordsProcessed = result.TermsProcessed;
-            syncHistory.RecordsUpdated = result.TermsUpdated;
-            syncHistory.RecordsFailed = result.TermsFailed;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to sync terms for school {SchoolId}", school.SchoolId);
-            syncHistory.Status = "Failed";
-            syncHistory.ErrorMessage = ex.Message;
-            throw;
-        }
-        finally
-        {
-            syncHistory.SyncEndTime = DateTime.UtcNow;
-            await _sessionDb.SaveChangesAsync(cancellationToken);
-        }
-    }
-
-    /// <summary>
-    /// Upserts a term record (insert if new, update if exists).
-    /// Supports restoration: if a deleted term reappears in Clever, clears DeletedAt.
-    /// </summary>
-    /// <param name="schoolDb">School database context</param>
-    /// <param name="cleverTerm">Term data from Clever API</param>
-    /// <param name="syncId">Current sync ID for change tracking</param>
-    /// <param name="changeTracker">Change tracker for audit logging</param>
-    /// <param name="syncStartTime">Sync start time for LastSyncedAt</param>
-    /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>True if changes were made, false otherwise</returns>
-    private async Task<bool> UpsertTermAsync(
-        SchoolDbContext schoolDb,
-        CleverApi.Models.CleverTerm cleverTerm,
-        int syncId,
-        ChangeTracker changeTracker,
-        DateTime syncStartTime,
-        CancellationToken cancellationToken)
-    {
-        var term = await schoolDb.Terms
-            .FirstOrDefaultAsync(t => t.CleverTermId == cleverTerm.Id, cancellationToken);
-
-        var now = syncStartTime;
-        bool hasChanges = false;
-
-        // Parse dates from ISO 8601 strings
-        DateTime? startDate = null;
-        DateTime? endDate = null;
-
-        if (!string.IsNullOrEmpty(cleverTerm.StartDate) && DateTime.TryParse(cleverTerm.StartDate, out var parsedStart))
-        {
-            startDate = parsedStart;
-        }
-        if (!string.IsNullOrEmpty(cleverTerm.EndDate) && DateTime.TryParse(cleverTerm.EndDate, out var parsedEnd))
-        {
-            endDate = parsedEnd;
-        }
-
-        if (term == null)
-        {
-            // Insert new term
-            term = new Term
-            {
-                CleverTermId = cleverTerm.Id,
-                CleverDistrictId = cleverTerm.District,
-                Name = cleverTerm.Name,
-                StartDate = startDate,
-                EndDate = endDate,
-                CreatedAt = now,
-                UpdatedAt = now,
-                LastSyncedAt = now
-            };
-            schoolDb.Terms.Add(term);
-            hasChanges = true;
-
-            // Track creation
-            changeTracker.TrackTermChange(syncId, null, term, "Created");
-        }
-        else
-        {
-            // Always update LastSyncedAt to track that we saw this record
-            term.LastSyncedAt = now;
-
-            // Check if any fields actually changed
-            var nameChanged = !_validationService.StringsEqual(term.Name, cleverTerm.Name);
-            var startDateChanged = term.StartDate != startDate;
-            var endDateChanged = term.EndDate != endDate;
-            var wasDeleted = term.DeletedAt != null;
-
-            if (nameChanged || startDateChanged || endDateChanged || wasDeleted)
-            {
-                // Capture old state before updating
-                var oldTerm = new Term
-                {
-                    CleverTermId = term.CleverTermId,
-                    CleverDistrictId = term.CleverDistrictId,
-                    Name = term.Name,
-                    StartDate = term.StartDate,
-                    EndDate = term.EndDate
-                };
-
-                // Update existing term
-                term.Name = cleverTerm.Name;
-                term.StartDate = startDate;
-                term.EndDate = endDate;
-                term.UpdatedAt = now;
-                term.DeletedAt = null; // Reactivate if it was deleted (restoration)
-                hasChanges = true;
-
-                // Track update with old and new values
-                changeTracker.TrackTermChange(syncId, oldTerm, term, "Updated");
-
-                if (wasDeleted)
-                {
-                    _logger.LogInformation("Term {CleverTermId} ({Name}) was restored (previously deleted)",
-                        term.CleverTermId, term.Name);
-                }
-            }
-        }
-
-        if (hasChanges)
-        {
-            await schoolDb.SaveChangesAsync(cancellationToken);
-        }
-
-        return hasChanges;
     }
 }
