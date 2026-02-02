@@ -90,6 +90,25 @@
                                 <span class="text-muted">no changes</span>
                             }
                         </p>
+                        <p class="mb-2">
+                            <strong>Administrators:</strong>
+                            @if (Progress.AdminsUpdated > 0)
+                            {
+                                <span class="text-primary">@Progress.AdminsUpdated updated</span>
+                            }
+                            @if (Progress.AdminsFailed > 0)
+                            {
+                                @if (Progress.AdminsUpdated > 0)
+                                {
+                                    <text>, </text>
+                                }
+                                <span class="text-danger">@Progress.AdminsFailed failed</span>
+                            }
+                            @if (Progress.AdminsUpdated == 0 && Progress.AdminsFailed == 0)
+                            {
+                                <span class="text-muted">no changes</span>
+                            }
+                        </p>
                     }
                     else
                     {
@@ -117,6 +136,14 @@
                             @if (Progress.SectionsFailed > 0)
                             {
                                 <span class="text-danger">(@Progress.SectionsFailed failed)</span>
+                            }
+                        </p>
+                        <p class="mb-2">
+                            <strong>Administrators:</strong>
+                            @Progress.AdminsProcessed processed, @Progress.AdminsUpdated updated
+                            @if (Progress.AdminsFailed > 0)
+                            {
+                                <span class="text-danger">(@Progress.AdminsFailed failed)</span>
                             }
                         </p>
                     }

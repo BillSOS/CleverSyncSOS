@@ -94,6 +94,25 @@
                                     <span class="text-muted">no changes</span>
                                 }
                             </p>
+                            <p>
+                                <strong>Administrators:</strong>
+                                @if (Result.AdminsProcessed > 0)
+                                {
+                                    <text>@Result.AdminsProcessed processed</text>
+                                    @if (Result.AdminsUpdated > 0)
+                                    {
+                                        <text>, </text><span class="text-primary">@Result.AdminsUpdated updated</span>
+                                    }
+                                    @if (Result.AdminsFailed > 0)
+                                    {
+                                        <text>, </text><span class="text-danger">@Result.AdminsFailed failed</span>
+                                    }
+                                }
+                                else
+                                {
+                                    <span class="text-muted">none found in Clever</span>
+                                }
+                            </p>
                         }
                         else
                         {
@@ -114,6 +133,25 @@
                                 @if (Result.TeachersDeleted > 0)
                                 {
                                     <text>, @Result.TeachersDeleted deleted</text>
+                                }
+                            </p>
+                            <p>
+                                <strong>Administrators:</strong>
+                                @if (Result.AdminsProcessed > 0)
+                                {
+                                    <text>@Result.AdminsProcessed processed</text>
+                                    @if (Result.AdminsUpdated > 0)
+                                    {
+                                        <text>, @Result.AdminsUpdated updated</text>
+                                    }
+                                    @if (Result.AdminsFailed > 0)
+                                    {
+                                        <text>, @Result.AdminsFailed failed</text>
+                                    }
+                                }
+                                else
+                                {
+                                    <span class="text-muted">none found in Clever</span>
                                 }
                             </p>
                         }
@@ -145,6 +183,7 @@
                             <th>Status</th>
                             <th>Students</th>
                             <th>Teachers</th>
+                            <th>Sections</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -164,6 +203,7 @@
                                 </td>
                                 <td>@school.StudentsProcessed</td>
                                 <td>@school.TeachersProcessed</td>
+                                <td>@school.SectionsProcessed</td>
                             </tr>
                         }
                     </tbody>

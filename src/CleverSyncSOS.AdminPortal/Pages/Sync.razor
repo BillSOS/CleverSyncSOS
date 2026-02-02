@@ -4,9 +4,14 @@
 @using CleverSyncSOS.Core.Database.SessionDb.Entities
 @using CleverSyncSOS.AdminPortal.Services
 @using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.SignalR.Client
+@implements IAsyncDisposable
+@inject IDbContextFactory<SessionDbContext> DbContextFactory
 @inject SessionDbContext DbContext
 @inject ICurrentUserService CurrentUser
 @inject NavigationManager NavigationManager
+@inject ILogger<Sync> Logger
+@inject IHttpContextAccessor HttpContextAccessor
 
 <PageTitle>Sync Operations - CleverSync Admin</PageTitle>
 
@@ -15,6 +20,11 @@
         <div class="d-flex align-items-center">
             <img src="favicon.png" alt="CleverSync Logo" style="height: 2.5rem; margin-right: 1rem;" />
             <h1 class="mb-0">Sync Operations</h1>
+            <a href="/help/sync" class="help-link ms-2"
+               data-bs-toggle="tooltip" data-bs-placement="bottom"
+               title="Learn about sync operations, statuses, and troubleshooting">
+                <i class="oi oi-question-mark"></i>
+            </a>
         </div>
         <div>
             <button class="btn btn-success me-2" @onclick="StartManualSync">
@@ -45,6 +55,24 @@
     }
     else
     {
+        <!-- Orphaned Syncs Warning -->
+        @if (_orphanedSyncCount > 0 && CurrentUser.IsSuperAdmin)
+        {
+            <div class="alert alert-danger mb-4">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong><i class="oi oi-warning me-2"></i>@_orphanedSyncCount Orphaned Sync(s) Detected</strong>
+                        <p class="mb-0 mt-1">
+                            These syncs show "In Progress" but have no active lock, indicating they crashed or failed without updating their status.
+                        </p>
+                    </div>
+                    <button class="btn btn-danger" @onclick="MarkAllOrphanedAsFailed">
+                        <i class="oi oi-x me-1"></i> Mark All as Failed
+                    </button>
+                </div>
+            </div>
+        }
+
         <!-- Summary Cards -->
         <div class="row mb-4">
             <div class="col-md-3">
@@ -102,9 +130,23 @@
                         <label class="form-label">Entity Type</label>
                         <select class="form-select" @bind="_selectedEntityType" @bind:after="FilterData">
                             <option value="">All Types</option>
-                            <option value="Student">Students</option>
-                            <option value="Teacher">Teachers</option>
-                            <option value="Section">Sections</option>
+                            <option value="Student">Student</option>
+                            <option value="Teacher">Teacher</option>
+                            <option value="Section">Section</option>
+                            <option value="Admin">Admin</option>
+                            <option value="Event">Event</option>
+                            <option value="Workshop">Workshop</option>
+                            <option value="Baseline">Baseline</option>
+                            <option value="Course">Course</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Sync Type</label>
+                        <select class="form-select" @bind="_selectedSyncType" @bind:after="FilterData">
+                            <option value="">All Types</option>
+                            <option value="@SyncType.Incremental">Incremental</option>
+                            <option value="@SyncType.Full">Full</option>
+                            <option value="@SyncType.Reconciliation">Reconciliation</option>
                         </select>
                     </div>
                     <div class="col-md-3">
@@ -115,15 +157,6 @@
                             <option value="Failed">Failed</option>
                             <option value="Partial">Partial</option>
                             <option value="InProgress">In Progress</option>
-                        </select>
-                    </div>
-                    <div class="col-md-3">
-                        <label class="form-label">Sync Type</label>
-                        <select class="form-select" @bind="_selectedSyncType" @bind:after="FilterData">
-                            <option value="">All Types</option>
-                            <option value="@SyncType.Incremental">Incremental</option>
-                            <option value="@SyncType.Full">Full</option>
-                            <option value="@SyncType.Reconciliation">Reconciliation</option>
                         </select>
                     </div>
                 </div>
@@ -156,7 +189,7 @@
                                     <th>Status</th>
                                     <th>Records</th>
                                     <th>Duration</th>
-                                    <th>Actions</th>
+                                    <th></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -186,7 +219,24 @@
                                             }
                                             else if (sync.Status == "InProgress")
                                             {
-                                                <span class="badge bg-warning text-dark">In Progress</span>
+                                                @if (IsOrphanedSync(sync))
+                                                {
+                                                    <span class="badge bg-danger">Orphaned</span>
+                                                    @if (CurrentUser.IsSuperAdmin)
+                                                    {
+                                                        var syncToMark = sync;
+                                                        <button class="btn btn-sm btn-outline-danger ms-1"
+                                                                @onclick="async () => await MarkSyncAsFailed(syncToMark)"
+                                                                @onclick:stopPropagation="true"
+                                                                title="Mark as Failed">
+                                                            <i class="oi oi-x"></i>
+                                                        </button>
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-warning text-dark">In Progress</span>
+                                                }
                                             }
                                             else if (sync.Status == "Partial")
                                             {
@@ -309,16 +359,47 @@
                                 <dd class="col-sm-9">@(_selectedSync.SyncEndTime.HasValue ? FormatLocalTime(_selectedSync.SyncEndTime.Value, _selectedSync.School?.District?.LocalTimeZone, "F") : "Not completed")</dd>
 
                                 <dt class="col-sm-3">Records Processed:</dt>
-                                <dd class="col-sm-9">@_selectedSync.RecordsProcessed</dd>
+                                <dd class="col-sm-9">
+                                    <strong>@_selectedSync.RecordsProcessed @GetEntityTypeLabel(_selectedSync.EntityType)</strong>
+                                    <small class="text-muted ms-2">(fetched from Clever and examined)</small>
+                                </dd>
+
+                                @if (!string.IsNullOrEmpty(_selectedSync.EventsSummaryJson))
+                                {
+                                    <dt class="col-sm-3">Events Breakdown:</dt>
+                                    <dd class="col-sm-9">
+                                        @{
+                                            var breakdown = GetEventsSummaryBreakdown(_selectedSync.EventsSummaryJson);
+                                        }
+                                        <div class="small">
+                                            @foreach (var item in breakdown)
+                                            {
+                                                <span class="badge @item.BadgeClass me-1 mb-1">@item.Text</span>
+                                            }
+                                        </div>
+                                    </dd>
+                                }
 
                                 <dt class="col-sm-3">Records Updated:</dt>
-                                <dd class="col-sm-9"><span class="text-success fw-bold">@_selectedSync.RecordsUpdated</span></dd>
+                                <dd class="col-sm-9">
+                                    <span class="@(_selectedSync.RecordsUpdated > 0 ? "text-success fw-bold" : "text-muted")">@_selectedSync.RecordsUpdated</span>
+                                    <small class="text-muted ms-2">(records with actual data changes saved to database)</small>
+                                </dd>
 
                                 <dt class="col-sm-3">Records Failed:</dt>
                                 <dd class="col-sm-9">@_selectedSync.RecordsFailed</dd>
 
-                                <dt class="col-sm-3">Last Sync Timestamp:</dt>
-                                <dd class="col-sm-9">@(_selectedSync.LastSyncTimestamp.HasValue ? FormatLocalTime(_selectedSync.LastSyncTimestamp.Value, _selectedSync.School?.District?.LocalTimeZone, "F") : "N/A")</dd>
+                                @if (!string.IsNullOrEmpty(_selectedSync.LastEventId))
+                                {
+                                    <dt class="col-sm-3">Last Event ID:</dt>
+                                    <dd class="col-sm-9"><code class="small">@_selectedSync.LastEventId</code></dd>
+                                }
+
+                                @if (_selectedSync.LastSyncTimestamp.HasValue)
+                                {
+                                    <dt class="col-sm-3">Last Sync Timestamp:</dt>
+                                    <dd class="col-sm-9">@FormatLocalTime(_selectedSync.LastSyncTimestamp.Value, _selectedSync.School?.District?.LocalTimeZone, "F")</dd>
+                                }
 
                                 @if (!string.IsNullOrEmpty(_selectedSync.ErrorMessage))
                                 {
@@ -330,6 +411,21 @@
                                     </dd>
                                 }
                             </dl>
+
+                            @if (_selectedSync.RecordsProcessed > 0 && _selectedSync.RecordsUpdated == 0)
+                            {
+                                <div class="alert alert-info mt-3 mb-0">
+                                    <strong>Why were 0 records updated?</strong>
+                                    <p class="mb-2 mt-2">
+                                        All @_selectedSync.RecordsProcessed records from Clever were compared against the database, but no differences were found.
+                                        This is normal when data hasn't changed since the last sync.
+                                    </p>
+                                    <ul class="mb-0 small">
+                                        <li><strong>Processed:</strong> Records fetched from Clever API and compared field-by-field</li>
+                                        <li><strong>Updated:</strong> Only increments when actual data changes are detected and saved</li>
+                                    </ul>
+                                </div>
+                            }
                         </div>
                         <div class="modal-footer">
                             <button type="button" class="btn btn-secondary" @onclick="CloseDetailsModal">Close</button>
@@ -364,9 +460,74 @@
     private const int _pageSize = 50;
     private int TotalPages => (int)Math.Ceiling(_filteredSyncHistory.Count / (double)_pageSize);
 
+    // Orphaned sync detection
+    private HashSet<string> _activeLockScopes = new();
+    private int _orphanedSyncCount = 0;
+
+    // SignalR connection for auto-refresh
+    private HubConnection? _hubConnection;
+
     protected override async Task OnInitializedAsync()
     {
         await LoadData();
+        await LoadActiveLocks();
+        UpdateOrphanedSyncCount();
+        await InitializeSignalRConnection();
+    }
+
+    private async Task InitializeSignalRConnection()
+    {
+        try
+        {
+            // Get the authentication cookie to pass to SignalR
+            var httpContext = HttpContextAccessor.HttpContext;
+            var cookies = httpContext?.Request.Cookies;
+
+            _hubConnection = new HubConnectionBuilder()
+                .WithUrl(NavigationManager.ToAbsoluteUri("/hubs/syncProgress"), options =>
+                {
+                    // Pass authentication cookie to SignalR connection
+                    if (cookies != null)
+                    {
+                        options.Cookies.Add(new System.Net.Cookie(
+                            ".AspNetCore.Cookies",
+                            cookies[".AspNetCore.Cookies"] ?? "",
+                            "/",
+                            NavigationManager.ToAbsoluteUri("/").Host));
+                    }
+                })
+                .WithAutomaticReconnect()
+                .Build();
+
+            // Listen for sync history updates and auto-refresh
+            _hubConnection.On<string>("SyncHistoryUpdated", async (scope) =>
+            {
+                Logger.LogInformation("Received SyncHistoryUpdated notification for scope {Scope}, refreshing data", scope);
+                await InvokeAsync(async () =>
+                {
+                    await LoadData();
+                    await LoadActiveLocks();
+                    UpdateOrphanedSyncCount();
+                    StateHasChanged();
+                });
+            });
+
+            await _hubConnection.StartAsync();
+            Logger.LogInformation("SignalR connection established for Sync page auto-refresh");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to initialize SignalR connection for auto-refresh");
+            // Don't fail the page load if SignalR fails - manual refresh is still available
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_hubConnection != null)
+        {
+            await _hubConnection.DisposeAsync();
+        }
     }
 
     private async Task LoadData()
@@ -595,6 +756,219 @@
         if (_currentPage < TotalPages)
         {
             _currentPage++;
+        }
+    }
+
+    private string GetEntityTypeLabel(string entityType)
+    {
+        return entityType switch
+        {
+            "Student" => "students",
+            "Teacher" => "teachers",
+            "Section" => "sections",
+            "Admin" => "administrators",
+            "Event" => "events",
+            "Workshop" => "workshops",
+            "Baseline" => "(baseline)",
+            "Course" => "courses",
+            _ => "records"
+        };
+    }
+
+    private List<EventBreakdownItem> GetEventsSummaryBreakdown(string? eventsSummaryJson)
+    {
+        var result = new List<EventBreakdownItem>();
+        if (string.IsNullOrEmpty(eventsSummaryJson))
+            return result;
+
+        try
+        {
+            var summary = System.Text.Json.JsonSerializer.Deserialize<EventsSummaryDto>(eventsSummaryJson);
+            if (summary == null)
+                return result;
+
+            // Students
+            if (summary.StudentCreated > 0)
+                result.Add(new EventBreakdownItem { Text = $"{summary.StudentCreated} students created", BadgeClass = "bg-primary" });
+            if (summary.StudentUpdated > 0)
+                result.Add(new EventBreakdownItem { Text = $"{summary.StudentUpdated} students updated", BadgeClass = "bg-info" });
+            if (summary.StudentDeleted > 0)
+                result.Add(new EventBreakdownItem { Text = $"{summary.StudentDeleted} students deleted", BadgeClass = "bg-danger" });
+
+            // Teachers
+            if (summary.TeacherCreated > 0)
+                result.Add(new EventBreakdownItem { Text = $"{summary.TeacherCreated} teachers created", BadgeClass = "bg-success" });
+            if (summary.TeacherUpdated > 0)
+                result.Add(new EventBreakdownItem { Text = $"{summary.TeacherUpdated} teachers updated", BadgeClass = "bg-info" });
+            if (summary.TeacherDeleted > 0)
+                result.Add(new EventBreakdownItem { Text = $"{summary.TeacherDeleted} teachers deleted", BadgeClass = "bg-danger" });
+
+            // Sections
+            if (summary.SectionCreated > 0)
+                result.Add(new EventBreakdownItem { Text = $"{summary.SectionCreated} sections created", BadgeClass = "bg-warning text-dark" });
+            if (summary.SectionUpdated > 0)
+                result.Add(new EventBreakdownItem { Text = $"{summary.SectionUpdated} sections updated", BadgeClass = "bg-info" });
+            if (summary.SectionDeleted > 0)
+                result.Add(new EventBreakdownItem { Text = $"{summary.SectionDeleted} sections deleted", BadgeClass = "bg-danger" });
+
+            // Skipped
+            if (summary.EventsSkipped > 0)
+                result.Add(new EventBreakdownItem { Text = $"{summary.EventsSkipped} skipped", BadgeClass = "bg-secondary" });
+        }
+        catch
+        {
+            // If parsing fails, return empty list
+        }
+
+        return result;
+    }
+
+    // DTOs for EventsSummary display
+    private class EventBreakdownItem
+    {
+        public string Text { get; set; } = string.Empty;
+        public string BadgeClass { get; set; } = string.Empty;
+    }
+
+    private class EventsSummaryDto
+    {
+        public int TotalEventsProcessed { get; set; }
+        public int StudentCreated { get; set; }
+        public int StudentUpdated { get; set; }
+        public int StudentDeleted { get; set; }
+        public int TeacherCreated { get; set; }
+        public int TeacherUpdated { get; set; }
+        public int TeacherDeleted { get; set; }
+        public int SectionCreated { get; set; }
+        public int SectionUpdated { get; set; }
+        public int SectionDeleted { get; set; }
+        public int EventsSkipped { get; set; }
+    }
+
+    // Orphaned sync detection methods
+    private async Task LoadActiveLocks()
+    {
+        try
+        {
+            await using var dbContext = await DbContextFactory.CreateDbContextAsync();
+            var activeLocks = await dbContext.SyncLocks
+                .Where(l => l.ExpiresAt > DateTime.UtcNow)
+                .Select(l => l.Scope)
+                .ToListAsync();
+            _activeLockScopes = new HashSet<string>(activeLocks);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load active locks for orphan detection");
+            _activeLockScopes = new HashSet<string>();
+        }
+    }
+
+    private void UpdateOrphanedSyncCount()
+    {
+        _orphanedSyncCount = _syncHistory.Count(s => s.Status == "InProgress" && IsOrphanedSync(s));
+    }
+
+    private bool IsOrphanedSync(SyncHistory sync)
+    {
+        if (sync.Status != "InProgress")
+            return false;
+
+        // Build the scope string that would be used for this sync
+        var scope = $"school:{sync.SchoolId}";
+
+        // If there's an active lock for this scope, the sync is still running
+        if (_activeLockScopes.Contains(scope))
+            return false;
+
+        // Additional check: if sync started more than 2 hours ago with no lock, it's definitely orphaned
+        var syncAge = DateTime.UtcNow - sync.SyncStartTime;
+        if (syncAge.TotalHours > 2)
+            return true;
+
+        // For recent syncs (< 2 hours), only mark as orphaned if no lock exists
+        // This handles the case where a sync just finished but hasn't updated status yet
+        return true;
+    }
+
+    private async Task MarkSyncAsFailed(SyncHistory sync)
+    {
+        try
+        {
+            await using var dbContext = await DbContextFactory.CreateDbContextAsync();
+            var syncToUpdate = await dbContext.SyncHistory.FindAsync(sync.SyncId);
+
+            if (syncToUpdate != null)
+            {
+                syncToUpdate.Status = "Failed";
+                syncToUpdate.SyncEndTime = DateTime.UtcNow;
+                syncToUpdate.ErrorMessage = "Marked as failed by administrator (orphaned sync detected)";
+                await dbContext.SaveChangesAsync();
+
+                Logger.LogWarning("Marked orphaned sync {SyncId} as failed for school {SchoolId}",
+                    sync.SyncId, sync.SchoolId);
+
+                // Refresh the data
+                await LoadData();
+                await LoadActiveLocks();
+                UpdateOrphanedSyncCount();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to mark sync {SyncId} as failed", sync.SyncId);
+            _error = $"Failed to update sync status: {ex.Message}";
+        }
+        finally
+        {
+            // Ensure UI is updated after async operation completes
+            StateHasChanged();
+        }
+    }
+
+    private async Task MarkAllOrphanedAsFailed()
+    {
+        try
+        {
+            await using var dbContext = await DbContextFactory.CreateDbContextAsync();
+
+            var orphanedSyncs = _syncHistory
+                .Where(s => s.Status == "InProgress" && IsOrphanedSync(s))
+                .Select(s => s.SyncId)
+                .ToList();
+
+            if (orphanedSyncs.Any())
+            {
+                var syncsToUpdate = await dbContext.SyncHistory
+                    .Where(s => orphanedSyncs.Contains(s.SyncId))
+                    .ToListAsync();
+
+                foreach (var sync in syncsToUpdate)
+                {
+                    sync.Status = "Failed";
+                    sync.SyncEndTime = DateTime.UtcNow;
+                    sync.ErrorMessage = "Marked as failed by administrator (orphaned sync detected)";
+                }
+
+                await dbContext.SaveChangesAsync();
+
+                Logger.LogWarning("Marked {Count} orphaned syncs as failed", orphanedSyncs.Count);
+
+                // Refresh the data
+                await LoadData();
+                await LoadActiveLocks();
+                UpdateOrphanedSyncCount();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to mark orphaned syncs as failed");
+            _error = $"Failed to update sync statuses: {ex.Message}";
+        }
+        finally
+        {
+            // Ensure UI is updated after async operation completes
+            StateHasChanged();
         }
     }
 }

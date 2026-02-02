@@ -3,6 +3,7 @@ using CleverSyncSOS.AdminPortal.Models.ViewModels;
 using CleverSyncSOS.Core.Database.SessionDb;
 using CleverSyncSOS.Core.Services;
 using CleverSyncSOS.Core.Sync;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using SyncProgress = CleverSyncSOS.Core.Sync.SyncProgress;
@@ -23,6 +24,7 @@ public class SyncCoordinatorService : ISyncCoordinatorService
     private readonly SessionDbContext _dbContext;
     private readonly ActiveSyncTracker _activeSyncTracker;
     private readonly ISyncLockService _syncLockService;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
     public SyncCoordinatorService(
         ISyncService syncService,
@@ -31,7 +33,8 @@ public class SyncCoordinatorService : ISyncCoordinatorService
         ILogger<SyncCoordinatorService> logger,
         SessionDbContext dbContext,
         ActiveSyncTracker activeSyncTracker,
-        ISyncLockService syncLockService)
+        ISyncLockService syncLockService,
+        IHttpContextAccessor httpContextAccessor)
     {
         _syncService = syncService;
         _hubContext = hubContext;
@@ -40,6 +43,7 @@ public class SyncCoordinatorService : ISyncCoordinatorService
         _dbContext = dbContext;
         _activeSyncTracker = activeSyncTracker;
         _syncLockService = syncLockService;
+        _httpContextAccessor = httpContextAccessor;
     }
 
     public async Task<bool> IsSyncInProgressAsync(string scope)
@@ -61,9 +65,40 @@ public class SyncCoordinatorService : ISyncCoordinatorService
         SyncMode syncMode,
         string connectionId)
     {
-        // Get user info for lock tracking
-        var user = await _dbContext.Users.FindAsync(userId);
-        var initiatedBy = user?.DisplayName ?? $"User:{userId}";
+        // Get HTTP context info for audit logging
+        var httpContext = _httpContextAccessor.HttpContext;
+        var ipAddress = httpContext?.Connection.RemoteIpAddress?.ToString();
+        var userAgent = httpContext?.Request.Headers["User-Agent"].ToString();
+
+        // Get user info for lock tracking and audit logging
+        string initiatedBy;
+        string userIdentifier;
+
+        if (userId <= 0)
+        {
+            // No database user ID - check if this is a Super Admin bypass login
+            var userName = httpContext?.User?.Identity?.Name;
+            var isSuperAdmin = httpContext?.User?.IsInRole("SuperAdmin") ?? false;
+
+            if (isSuperAdmin && !string.IsNullOrEmpty(userName))
+            {
+                // Use the claims-based name for Super Admin bypass login
+                initiatedBy = userName;
+                userIdentifier = userName;
+            }
+            else
+            {
+                initiatedBy = "Unknown User";
+                userIdentifier = "Unknown User";
+            }
+        }
+        else
+        {
+            // Normal user with database ID - look up their info
+            var user = await _dbContext.Users.FindAsync(userId);
+            initiatedBy = user?.DisplayName ?? $"User:{userId}";
+            userIdentifier = user?.DisplayName ?? user?.Email ?? $"User:{userId}";
+        }
 
         // Acquire database-based distributed lock (works across Admin Portal + Azure Functions)
         var lockResult = await _syncLockService.TryAcquireLockAsync(
@@ -102,8 +137,8 @@ public class SyncCoordinatorService : ISyncCoordinatorService
         _activeSyncTracker.TryAdd(scope, progress);
 
         // Audit log: Sync started
-        await _auditLogService.LogEventAsync("TriggerSync", true, userId, null, scope,
-            $"Started {syncMode} sync for {scope}");
+        await _auditLogService.LogEventAsync("TriggerSync", true, userId, userIdentifier, scope,
+            $"Started {syncMode} sync for {scope}", ipAddress, userAgent);
 
         try
         {
@@ -144,6 +179,11 @@ public class SyncCoordinatorService : ISyncCoordinatorService
                 progress.SectionsDeleted = p.SectionsDeleted;
                 progress.EventsProcessed = p.EventsProcessed;
                 progress.EventsSkipped = p.EventsSkipped;
+
+                // Admin counters (always fetched fresh)
+                progress.AdminsProcessed = p.AdminsProcessed;
+                progress.AdminsUpdated = p.AdminsUpdated;
+                progress.AdminsFailed = p.AdminsFailed;
 
                 // Broadcast progress update synchronously to ensure delivery
                 Task.Run(async () =>
@@ -202,11 +242,14 @@ public class SyncCoordinatorService : ISyncCoordinatorService
             await BroadcastProgressAsync(scope, progress);
 
             // Audit log: Sync completed
-            await _auditLogService.LogEventAsync("SyncCompleted", result.Success, userId, null, scope,
-                $"{syncMode} sync {(result.Success ? "succeeded" : "failed")} for {scope}");
+            await _auditLogService.LogEventAsync("SyncCompleted", result.Success, userId, userIdentifier, scope,
+                $"{syncMode} sync {(result.Success ? "succeeded" : "failed")} for {scope}", ipAddress, userAgent);
 
-            // Broadcast completion to SignalR clients
+            // Broadcast completion to SignalR clients (scope-specific for ManualSync page)
             await _hubContext.Clients.Group($"sync-{scope}").SendAsync("ReceiveCompletion", result);
+
+            // Broadcast to all clients that sync history has been updated (for Sync/SyncHistory pages)
+            await _hubContext.Clients.All.SendAsync("SyncHistoryUpdated", scope);
 
             return result;
         }
@@ -214,8 +257,8 @@ public class SyncCoordinatorService : ISyncCoordinatorService
         {
             _logger.LogError(ex, "Sync failed for scope {Scope}", scope);
 
-            await _auditLogService.LogEventAsync("SyncFailed", false, userId, null, scope,
-                $"Sync failed: {ex.Message}");
+            await _auditLogService.LogEventAsync("SyncFailed", false, userId, userIdentifier, scope,
+                $"Sync failed: {ex.Message}", ipAddress, userAgent);
 
             // Build detailed error message including inner exceptions
             var errorDetails = ex.Message;
@@ -235,6 +278,9 @@ public class SyncCoordinatorService : ISyncCoordinatorService
             };
 
             await _hubContext.Clients.Group($"sync-{scope}").SendAsync("ReceiveCompletion", errorResult);
+
+            // Broadcast to all clients that sync history has been updated (for Sync/SyncHistory pages)
+            await _hubContext.Clients.All.SendAsync("SyncHistoryUpdated", scope);
 
             return errorResult;
         }
@@ -285,6 +331,9 @@ public class SyncCoordinatorService : ISyncCoordinatorService
             TeachersProcessed = syncResult.TeachersProcessed,
             TeachersFailed = syncResult.TeachersFailed,
             TeachersDeleted = syncResult.TeachersDeleted,
+            AdminsProcessed = syncResult.AdminsProcessed,
+            AdminsUpdated = syncResult.AdminsUpdated,
+            AdminsFailed = syncResult.AdminsFailed,
             ErrorMessage = syncResult.ErrorMessage
         };
 
@@ -327,6 +376,7 @@ public class SyncCoordinatorService : ISyncCoordinatorService
                 Success = s.Success,
                 StudentsProcessed = s.StudentsProcessed,
                 TeachersProcessed = s.TeachersProcessed,
+                SectionsProcessed = s.SectionsProcessed,
                 ErrorMessage = s.ErrorMessage
             }).ToList()
         };
@@ -350,6 +400,7 @@ public class SyncCoordinatorService : ISyncCoordinatorService
                 Success = s.Success,
                 StudentsProcessed = s.StudentsProcessed,
                 TeachersProcessed = s.TeachersProcessed,
+                SectionsProcessed = s.SectionsProcessed,
                 ErrorMessage = s.ErrorMessage
             }).ToList()
         };

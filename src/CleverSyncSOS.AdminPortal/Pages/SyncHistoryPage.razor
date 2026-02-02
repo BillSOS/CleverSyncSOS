@@ -5,10 +5,15 @@
 @using CleverSyncSOS.Core.Database.SchoolDb
 @using CleverSyncSOS.Core.Database.SchoolDb.Entities
 @using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.SignalR.Client
 @using System.Text.Json
+@implements IAsyncDisposable
 @inject SessionDbContext DbContext
 @inject SchoolDatabaseConnectionFactory SchoolDbFactory
 @inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager NavigationManager
+@inject IHttpContextAccessor HttpContextAccessor
+@inject ILogger<SyncHistoryPage> Logger
 
 <PageTitle>Sync History - CleverSync Admin</PageTitle>
 
@@ -17,6 +22,11 @@
         <div class="d-flex align-items-center">
             <img src="favicon.png" alt="CleverSync Logo" style="height: 2.5rem; margin-right: 1rem;" />
             <h1 class="mb-0">Sync History</h1>
+            <a href="/help/sync" class="help-link ms-2"
+               data-bs-toggle="tooltip" data-bs-placement="bottom"
+               title="View detailed sync history and change tracking documentation">
+                <i class="oi oi-question-mark"></i>
+            </a>
         </div>
         <button class="btn btn-primary" @onclick="RefreshHistory">
             <i class="oi oi-reload"></i> Refresh
@@ -44,17 +54,23 @@
                     <label for="entityFilter" class="form-label">Entity Type</label>
                     <select class="form-select" id="entityFilter" @bind="_entityFilter" @bind:after="ApplyFilters">
                         <option value="">All Types</option>
-                        <option value="Student">Students</option>
-                        <option value="Teacher">Teachers</option>
-                        <option value="Event">Events</option>
+                        <option value="Student">Student</option>
+                        <option value="Teacher">Teacher</option>
+                        <option value="Section">Section</option>
+                        <option value="Admin">Admin</option>
+                        <option value="Event">Event</option>
+                        <option value="Workshop">Workshop</option>
+                        <option value="Baseline">Baseline</option>
+                        <option value="Course">Course</option>
                     </select>
                 </div>
                 <div class="col-md-3">
                     <label for="syncTypeFilter" class="form-label">Sync Type</label>
                     <select class="form-select" id="syncTypeFilter" @bind="_syncTypeFilter" @bind:after="ApplyFilters">
                         <option value="">All Types</option>
-                        <option value="Full">Full</option>
                         <option value="Incremental">Incremental</option>
+                        <option value="Full">Full</option>
+                        <option value="Reconciliation">Reconciliation</option>
                     </select>
                 </div>
                 <div class="col-md-3">
@@ -63,6 +79,7 @@
                         <option value="">All</option>
                         <option value="Success">Success</option>
                         <option value="Failed">Failed</option>
+                        <option value="Partial">Partial</option>
                         <option value="InProgress">In Progress</option>
                     </select>
                 </div>
@@ -109,7 +126,7 @@
                         <th>Updated</th>
                         <th>Failed</th>
                         <th>Status</th>
-                        <th>Actions</th>
+                        <th></th>
                     </tr>
                 </thead>
                 <tbody>
@@ -208,7 +225,13 @@
                                         {
                                             var eventsSummary = GetEventsSummaryDisplay(sync.EventsSummaryJson);
                                             <div class="alert alert-success mb-3" role="alert">
-                                                <strong>Events Processed:</strong> @eventsSummary
+                                                <strong>Events Breakdown:</strong> @eventsSummary
+                                            </div>
+                                        }
+                                        else if (sync.EntityType == "Event" && sync.RecordsProcessed > 0)
+                                        {
+                                            <div class="alert alert-warning mb-3" role="alert">
+                                                <strong>@sync.RecordsProcessed events processed</strong> - Detailed breakdown not available for this sync (recorded before breakdown tracking was enabled).
                                             </div>
                                         }
 
@@ -226,7 +249,37 @@
                                                 <strong>No records were updated</strong> during this sync operation.
                                                 @if (sync.RecordsProcessed > 0)
                                                 {
-                                                    <text> All @sync.RecordsProcessed records examined were already up-to-date.</text>
+                                                    <p class="mb-2 mt-2">
+                                                        <strong>@sync.RecordsProcessed @GetEntityTypeLabel(sync.EntityType)</strong> fetched from Clever API - all data matched existing records in the database.
+                                                    </p>
+                                                    @if (!string.IsNullOrEmpty(sync.EventsSummaryJson))
+                                                    {
+                                                        <div class="mb-2">
+                                                            <strong>Breakdown:</strong>
+                                                            @{
+                                                                var breakdown = GetEventsSummaryBreakdown(sync.EventsSummaryJson);
+                                                            }
+                                                            <div class="mt-1">
+                                                                @foreach (var item in breakdown)
+                                                                {
+                                                                    <span class="badge @item.BadgeClass me-1 mb-1">@item.Text</span>
+                                                                }
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                    <hr class="my-2" />
+                                                    <p class="mb-1"><strong>What does this mean?</strong></p>
+                                                    <ul class="mb-0 small">
+                                                        <li><strong>Records Processed (@sync.RecordsProcessed):</strong> Total @GetEntityTypeLabel(sync.EntityType) fetched from Clever and compared against the database</li>
+                                                        <li><strong>Records Updated (0):</strong> Records where actual data changes were detected and saved</li>
+                                                        <li>When processed > updated, it means the records were examined but no changes were needed (data is already in sync)</li>
+                                                    </ul>
+                                                    @if (sync.EntityType == "Event")
+                                                    {
+                                                        <p class="mt-2 mb-0 small text-muted">
+                                                            <i class="oi oi-info"></i> For Events-based syncs, "processed" = events received from Clever, "updated" = database records actually modified.
+                                                        </p>
+                                                    }
                                                 }
                                             </div>
                                         }
@@ -356,6 +409,9 @@
     private List<WorkshopAuditDto>? _workshopAudits = null;
     private bool _loadingDetails = false;
 
+    // SignalR connection for auto-refresh
+    private HubConnection? _hubConnection;
+
     protected override async Task OnInitializedAsync()
     {
         // Get current user's school if they're school-scoped
@@ -373,6 +429,60 @@
 
         await LoadSchools();
         await LoadHistory();
+        await InitializeSignalRConnection();
+    }
+
+    private async Task InitializeSignalRConnection()
+    {
+        try
+        {
+            // Get the authentication cookie to pass to SignalR
+            var httpContext = HttpContextAccessor.HttpContext;
+            var cookies = httpContext?.Request.Cookies;
+
+            _hubConnection = new HubConnectionBuilder()
+                .WithUrl(NavigationManager.ToAbsoluteUri("/hubs/syncProgress"), options =>
+                {
+                    // Pass authentication cookie to SignalR connection
+                    if (cookies != null)
+                    {
+                        options.Cookies.Add(new System.Net.Cookie(
+                            ".AspNetCore.Cookies",
+                            cookies[".AspNetCore.Cookies"] ?? "",
+                            "/",
+                            NavigationManager.ToAbsoluteUri("/").Host));
+                    }
+                })
+                .WithAutomaticReconnect()
+                .Build();
+
+            // Listen for sync history updates and auto-refresh
+            _hubConnection.On<string>("SyncHistoryUpdated", async (scope) =>
+            {
+                Logger.LogInformation("Received SyncHistoryUpdated notification for scope {Scope}, refreshing history", scope);
+                await InvokeAsync(async () =>
+                {
+                    await LoadHistory();
+                    StateHasChanged();
+                });
+            });
+
+            await _hubConnection.StartAsync();
+            Logger.LogInformation("SignalR connection established for SyncHistory page auto-refresh");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to initialize SignalR connection for auto-refresh");
+            // Don't fail the page load if SignalR fails - manual refresh is still available
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_hubConnection != null)
+        {
+            await _hubConnection.DisposeAsync();
+        }
     }
 
     private async Task LoadSchools()
@@ -608,7 +718,12 @@
         {
             "Student" => "bg-primary",
             "Teacher" => "bg-success",
-            "Event" => "bg-info",
+            "Section" => "bg-info",
+            "Admin" => "bg-danger",
+            "Event" => "bg-warning text-dark",
+            "Workshop" => "bg-purple text-white",
+            "Baseline" => "bg-secondary",
+            "Course" => "bg-dark",
             _ => "bg-secondary"
         };
     }
@@ -774,5 +889,75 @@
         public string NewWorkshopName { get; set; } = string.Empty;
         public DateTime WorkshopDate { get; set; }
         public string ActionType { get; set; } = string.Empty;
+    }
+
+    private string GetEntityTypeLabel(string entityType)
+    {
+        return entityType switch
+        {
+            "Student" => "students",
+            "Teacher" => "teachers",
+            "Section" => "sections",
+            "Admin" => "administrators",
+            "Event" => "events",
+            "Workshop" => "workshops",
+            "Baseline" => "(baseline)",
+            "Course" => "courses",
+            _ => "records"
+        };
+    }
+
+    private List<EventBreakdownItem> GetEventsSummaryBreakdown(string? eventsSummaryJson)
+    {
+        var result = new List<EventBreakdownItem>();
+        if (string.IsNullOrEmpty(eventsSummaryJson))
+            return result;
+
+        try
+        {
+            var summary = JsonSerializer.Deserialize<EventsSummaryDto>(eventsSummaryJson);
+            if (summary == null)
+                return result;
+
+            // Students
+            if (summary.StudentCreated > 0)
+                result.Add(new EventBreakdownItem { Text = $"{summary.StudentCreated} students created", BadgeClass = "bg-primary" });
+            if (summary.StudentUpdated > 0)
+                result.Add(new EventBreakdownItem { Text = $"{summary.StudentUpdated} students updated", BadgeClass = "bg-info" });
+            if (summary.StudentDeleted > 0)
+                result.Add(new EventBreakdownItem { Text = $"{summary.StudentDeleted} students deleted", BadgeClass = "bg-danger" });
+
+            // Teachers
+            if (summary.TeacherCreated > 0)
+                result.Add(new EventBreakdownItem { Text = $"{summary.TeacherCreated} teachers created", BadgeClass = "bg-success" });
+            if (summary.TeacherUpdated > 0)
+                result.Add(new EventBreakdownItem { Text = $"{summary.TeacherUpdated} teachers updated", BadgeClass = "bg-info" });
+            if (summary.TeacherDeleted > 0)
+                result.Add(new EventBreakdownItem { Text = $"{summary.TeacherDeleted} teachers deleted", BadgeClass = "bg-danger" });
+
+            // Sections
+            if (summary.SectionCreated > 0)
+                result.Add(new EventBreakdownItem { Text = $"{summary.SectionCreated} sections created", BadgeClass = "bg-warning text-dark" });
+            if (summary.SectionUpdated > 0)
+                result.Add(new EventBreakdownItem { Text = $"{summary.SectionUpdated} sections updated", BadgeClass = "bg-info" });
+            if (summary.SectionDeleted > 0)
+                result.Add(new EventBreakdownItem { Text = $"{summary.SectionDeleted} sections deleted", BadgeClass = "bg-danger" });
+
+            // Skipped
+            if (summary.EventsSkipped > 0)
+                result.Add(new EventBreakdownItem { Text = $"{summary.EventsSkipped} skipped", BadgeClass = "bg-secondary" });
+        }
+        catch
+        {
+            // If parsing fails, return empty list
+        }
+
+        return result;
+    }
+
+    private class EventBreakdownItem
+    {
+        public string Text { get; set; } = string.Empty;
+        public string BadgeClass { get; set; } = string.Empty;
     }
 }
