@@ -1,0 +1,860 @@
+@page "/admin/manage-terms"
+@attribute [Authorize(Policy = "SchoolAdmin")]
+@using CleverSyncSOS.Core.Services
+@using CleverSyncSOS.Core.Database.SessionDb
+@using CleverSyncSOS.Core.Database.SessionDb.Entities
+@using CleverSyncSOS.AdminPortal.Services
+@using Microsoft.EntityFrameworkCore
+@inject ITermManagementService TermService
+@inject ICurrentUserService CurrentUser
+@inject IDbContextFactory<SessionDbContext> SessionDbFactory
+@inject ILogger<ManageTerms> Logger
+
+<PageTitle>Manage Terms - CleverSync Admin</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="d-flex align-items-center">
+            <img src="favicon.png" alt="CleverSync Logo" style="height: 2.5rem; margin-right: 1rem;" />
+            <h1 class="mb-0">Manage Terms</h1>
+            <a href="/help/manage-terms" class="help-link ms-2"
+               data-bs-toggle="tooltip" data-bs-placement="bottom"
+               title="Learn about creating and managing academic terms">
+                <i class="oi oi-question-mark"></i>
+            </a>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-primary" @onclick="ShowAddTermDialog" disabled="@_loading">
+                <span class="oi oi-plus me-1"></span> Add Term
+            </button>
+            <button class="btn btn-outline-secondary" @onclick="ShowTemplateDialog" disabled="@_loading">
+                <span class="oi oi-calendar me-1"></span> Add from Template
+            </button>
+        </div>
+    </div>
+
+    @* School Selector for SuperAdmin/DistrictAdmin *@
+    @if (_requiresSchoolSelection)
+    {
+        <div class="card mb-4 border-primary">
+            <div class="card-body">
+                <div class="row align-items-center">
+                    <div class="col-auto">
+                        <label class="form-label mb-0 fw-bold">
+                            <span class="oi oi-home me-2"></span>Select School:
+                        </label>
+                    </div>
+                    <div class="col-md-4">
+                        <select class="form-select" @bind="_selectedSchoolId" @bind:after="OnSchoolSelectedAsync">
+                            <option value="0">-- Select a school --</option>
+                            @foreach (var school in _availableSchools)
+                            {
+                                <option value="@school.SchoolId">@school.Name</option>
+                            }
+                        </select>
+                    </div>
+                    @if (_selectedSchoolId == 0)
+                    {
+                        <div class="col-auto">
+                            <span class="text-muted">Please select a school to manage terms</span>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (!_requiresSchoolSelection || _selectedSchoolId > 0)
+    {
+    @* Filter Bar *@
+    <div class="card mb-4">
+        <div class="card-body py-2">
+            <div class="row align-items-center g-3">
+                <div class="col-auto">
+                    <label class="form-label mb-0 me-2">Status:</label>
+                    <select class="form-select form-select-sm d-inline-block w-auto" @bind="_statusFilter" @bind:after="ApplyFiltersAndRefresh">
+                        <option value="">All</option>
+                        <option value="Active">Active</option>
+                        <option value="Upcoming">Upcoming</option>
+                        <option value="Past">Past</option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <label class="form-label mb-0 me-2">Academic Year:</label>
+                    <select class="form-select form-select-sm d-inline-block w-auto" @bind="_academicYearFilter" @bind:after="ApplyFiltersAndRefresh">
+                        <option value="">All Years</option>
+                        @foreach (var year in _availableAcademicYears)
+                        {
+                            <option value="@year">@year</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="showDeleted" @bind="_showDeleted" @bind:after="LoadTermsAsync" />
+                        <label class="form-check-label" for="showDeleted">Show Deleted Terms</label>
+                    </div>
+                </div>
+                <div class="col-auto ms-auto">
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="LoadTermsAsync" disabled="@_loading">
+                        <span class="oi oi-reload @(_loading ? "spin-animation" : "")"></span> Refresh
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="text-center my-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2 text-muted">Loading terms...</p>
+        </div>
+    }
+    else if (_error != null)
+    {
+        <div class="alert alert-danger" role="alert">
+            <h4 class="alert-heading">Error</h4>
+            <p>@_error</p>
+            <button class="btn btn-sm btn-outline-danger" @onclick="LoadTermsAsync">Try Again</button>
+        </div>
+    }
+    else if (_filteredTerms.Count == 0)
+    {
+        <div class="text-center my-5 py-5 bg-light rounded">
+            <span class="oi oi-calendar display-4 text-muted mb-3 d-block"></span>
+            <h4 class="text-muted">No terms defined</h4>
+            <p class="text-muted">Create terms manually using the "Add Term" button, or wait for Clever sync to import terms.</p>
+            <button class="btn btn-primary mt-2" @onclick="ShowAddTermDialog">
+                <span class="oi oi-plus me-1"></span> Add Your First Term
+            </button>
+        </div>
+    }
+    else
+    {
+        <div class="card">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Name</th>
+                            <th>Start Date</th>
+                            <th>End Date</th>
+                            <th>Academic Year</th>
+                            <th>Status</th>
+                            <th>Source</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var term in _filteredTerms)
+                        {
+                            <tr class="@(term.DeletedAt.HasValue ? "table-secondary" : "")">
+                                <td>
+                                    <strong>@term.Name</strong>
+                                    @if (term.DeletedAt.HasValue)
+                                    {
+                                        <span class="badge bg-danger ms-2">Deleted</span>
+                                    }
+                                </td>
+                                <td>@term.StartDate.ToString("MMM d, yyyy")</td>
+                                <td>@term.EndDate.ToString("MMM d, yyyy")</td>
+                                <td>@term.AcademicYear</td>
+                                <td>
+                                    @switch (term.Status)
+                                    {
+                                        case TermStatus.Active:
+                                            <span class="badge bg-success">Active</span>
+                                            break;
+                                        case TermStatus.Upcoming:
+                                            <span class="badge bg-info">Upcoming</span>
+                                            break;
+                                        case TermStatus.Past:
+                                            <span class="badge bg-secondary">Past</span>
+                                            break;
+                                        case TermStatus.Deleted:
+                                            <span class="badge bg-danger">Deleted</span>
+                                            break;
+                                    }
+                                </td>
+                                <td>
+                                    @if (term.IsManual)
+                                    {
+                                        <span class="badge bg-primary">Manual</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-secondary" title="Managed by Clever - cannot be edited">
+                                            <span class="oi oi-cloud me-1"></span>Clever
+                                        </span>
+                                    }
+                                </td>
+                                <td class="text-end">
+                                    @if (term.CanEdit && term.DeletedAt == null)
+                                    {
+                                        <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => ShowEditTermDialog(term)" title="Edit term">
+                                            <span class="oi oi-pencil"></span>
+                                        </button>
+                                    }
+                                    @if (term.CanDelete)
+                                    {
+                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => ShowDeleteConfirmation(term)" title="Delete term">
+                                            <span class="oi oi-trash"></span>
+                                        </button>
+                                    }
+                                    @if (term.CanRestore)
+                                    {
+                                        <button class="btn btn-sm btn-outline-success" @onclick="() => RestoreTermAsync(term)" title="Restore term">
+                                            <span class="oi oi-action-undo"></span>
+                                        </button>
+                                    }
+                                    @if (!term.IsManual)
+                                    {
+                                        <span class="text-muted small" title="Clever terms cannot be edited">
+                                            <span class="oi oi-lock-locked"></span>
+                                        </span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+
+    @* Success/Error Messages *@
+    @if (!string.IsNullOrEmpty(_successMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show mt-3" role="alert">
+            <span class="oi oi-check me-2"></span>@_successMessage
+            <button type="button" class="btn-close" @onclick="() => _successMessage = null"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(_operationError))
+    {
+        <div class="alert alert-danger alert-dismissible fade show mt-3" role="alert">
+            <span class="oi oi-warning me-2"></span>@_operationError
+            <button type="button" class="btn-close" @onclick="() => _operationError = null"></button>
+        </div>
+    }
+    } @* End of school selection check *@
+</div>
+
+@* Add/Edit Term Dialog *@
+@if (_showTermDialog)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@(_editingTerm == null ? "Add Term" : "Edit Term")</h5>
+                    <button type="button" class="btn-close" @onclick="CloseTermDialog"></button>
+                </div>
+                <div class="modal-body">
+                    <EditForm Model="_termForm" OnValidSubmit="SaveTermAsync">
+                        <DataAnnotationsValidator />
+
+                        <div class="mb-3">
+                            <label class="form-label">Term Name <span class="text-danger">*</span></label>
+                            <InputText class="form-control" @bind-Value="_termForm.Name" placeholder="e.g., Fall 2025" />
+                            <ValidationMessage For="() => _termForm.Name" />
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Start Date <span class="text-danger">*</span></label>
+                                <InputDate class="form-control" @bind-Value="_termForm.StartDate" />
+                                <ValidationMessage For="() => _termForm.StartDate" />
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">End Date <span class="text-danger">*</span></label>
+                                <InputDate class="form-control" @bind-Value="_termForm.EndDate" />
+                                <ValidationMessage For="() => _termForm.EndDate" />
+                            </div>
+                        </div>
+
+                        @if (_termForm.StartDate >= _termForm.EndDate && _termForm.EndDate != default)
+                        {
+                            <div class="alert alert-warning py-2">
+                                <span class="oi oi-warning me-2"></span>End date must be after start date.
+                            </div>
+                        }
+
+                        @if (_overlapWarnings.Any())
+                        {
+                            <div class="alert alert-warning py-2">
+                                <span class="oi oi-warning me-2"></span>This term overlaps with: @string.Join(", ", _overlapWarnings)
+                                <br /><small class="text-muted">You can still save, but overlapping terms may cause confusion.</small>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrEmpty(_dialogError))
+                        {
+                            <div class="alert alert-danger py-2">@_dialogError</div>
+                        }
+                    </EditForm>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseTermDialog">Cancel</button>
+                    <button type="button" class="btn btn-primary" @onclick="SaveTermAsync" disabled="@_saving">
+                        @if (_saving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        @(_editingTerm == null ? "Create Term" : "Save Changes")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* Delete Confirmation Dialog *@
+@if (_showDeleteDialog && _termToDelete != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title">Delete Term</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseDeleteDialog"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete the term "<strong>@_termToDelete.Name</strong>"?</p>
+                    <p class="text-muted">This action can be undone by restoring the term later.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseDeleteDialog">Cancel</button>
+                    <button type="button" class="btn btn-danger" @onclick="DeleteTermAsync" disabled="@_saving">
+                        @if (_saving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        Delete Term
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* Template Dialog *@
+@if (_showTemplateDialog)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Create Terms from Template</h5>
+                    <button type="button" class="btn-close" @onclick="CloseTemplateDialog"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Template Type</label>
+                            <select class="form-select" @bind="_selectedTemplate" @bind:after="GenerateTemplatePreview">
+                                <option value="@TermTemplate.Semester">Semester (Fall/Spring)</option>
+                                <option value="@TermTemplate.Quarter">Quarter (Q1-Q4)</option>
+                                <option value="@TermTemplate.Trimester">Trimester (T1-T3)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Academic Year Start</label>
+                            <InputDate class="form-control" @bind-Value="_templateStartDate" @bind-Value:after="GenerateTemplatePreview" />
+                            <small class="text-muted">Usually August of the academic year</small>
+                        </div>
+                    </div>
+
+                    @if (_templatePreview.Any())
+                    {
+                        <h6>Generated Terms Preview:</h6>
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Start Date</th>
+                                    <th>End Date</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var term in _templatePreview)
+                                {
+                                    <tr>
+                                        <td>@term.Name</td>
+                                        <td>@term.StartDate.ToString("MMM d, yyyy")</td>
+                                        <td>@term.EndDate.ToString("MMM d, yyyy")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+
+                    @if (!string.IsNullOrEmpty(_dialogError))
+                    {
+                        <div class="alert alert-danger py-2">@_dialogError</div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseTemplateDialog">Cancel</button>
+                    <button type="button" class="btn btn-primary" @onclick="SaveTemplateTermsAsync" disabled="@(_saving || !_templatePreview.Any())">
+                        @if (_saving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        Create @_templatePreview.Count Terms
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    @@keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+    .spin-animation {
+        animation: spin 1s linear infinite;
+        display: inline-block;
+    }
+    .help-link {
+        color: #6c757d;
+        text-decoration: none;
+    }
+    .help-link:hover {
+        color: #0d6efd;
+    }
+</style>
+
+@code {
+    private bool _loading = true;
+    private bool _saving = false;
+    private string? _error;
+    private string? _operationError;
+    private string? _successMessage;
+    private string? _dialogError;
+
+    private List<TermDto> _terms = new();
+    private List<TermDto> _filteredTerms = new();
+    private List<string> _availableAcademicYears = new();
+
+    private string _statusFilter = "";
+    private string _academicYearFilter = "";
+    private string _currentAcademicYear = "";
+    private bool _showDeleted = false;
+
+    // School selection for SuperAdmin/DistrictAdmin
+    private bool _requiresSchoolSelection = false;
+    private int _selectedSchoolId = 0;
+    private List<School> _availableSchools = new();
+
+    // Add/Edit Dialog
+    private bool _showTermDialog = false;
+    private TermDto? _editingTerm = null;
+    private TermFormModel _termForm = new();
+    private List<string> _overlapWarnings = new();
+
+    // Delete Dialog
+    private bool _showDeleteDialog = false;
+    private TermDto? _termToDelete = null;
+
+    // Template Dialog
+    private bool _showTemplateDialog = false;
+    private TermTemplate _selectedTemplate = TermTemplate.Semester;
+    private DateTime _templateStartDate = new DateTime(DateTime.Today.Year, 8, 15);
+    private List<TermSuggestion> _templatePreview = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Calculate current academic year (school year starts in August)
+        // If we're in August or later, current year is thisYear-nextYear
+        // Otherwise, current year is lastYear-thisYear
+        var today = DateTime.Today;
+        var startYear = today.Month >= 8 ? today.Year : today.Year - 1;
+        _currentAcademicYear = $"{startYear}-{startYear + 1}";
+
+        // Check if user needs to select a school (SuperAdmin/DistrictAdmin without assigned school)
+        _requiresSchoolSelection = !CurrentUser.SchoolId.HasValue && (CurrentUser.IsSuperAdmin || CurrentUser.IsDistrictAdmin);
+
+        if (_requiresSchoolSelection)
+        {
+            await LoadAvailableSchoolsAsync();
+            _loading = false;
+        }
+        else
+        {
+            await LoadTermsAsync();
+        }
+    }
+
+    private async Task LoadAvailableSchoolsAsync()
+    {
+        try
+        {
+            await using var sessionDb = await SessionDbFactory.CreateDbContextAsync();
+            var query = sessionDb.Schools.Where(s => s.IsActive);
+
+            // DistrictAdmin can only see their district's schools
+            if (CurrentUser.IsDistrictAdmin && !string.IsNullOrEmpty(CurrentUser.DistrictId))
+            {
+                query = query.Where(s => s.DistrictId == CurrentUser.DistrictId);
+            }
+
+            _availableSchools = await query.OrderBy(s => s.Name).ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load available schools");
+            _error = "Failed to load schools";
+        }
+    }
+
+    private async Task OnSchoolSelectedAsync()
+    {
+        if (_selectedSchoolId > 0)
+        {
+            TermService.SetSchoolContext(_selectedSchoolId);
+            await LoadTermsAsync();
+        }
+        else
+        {
+            _terms.Clear();
+            _filteredTerms.Clear();
+        }
+    }
+
+    private async Task LoadTermsAsync()
+    {
+        _loading = true;
+        _error = null;
+        StateHasChanged();
+
+        try
+        {
+            _terms = (await TermService.GetTermsAsync(_showDeleted)).ToList();
+            UpdateAvailableAcademicYears();
+            ApplyFilters();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to load terms: {ex.Message}";
+            Logger.LogError(ex, "Failed to load terms");
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void UpdateAvailableAcademicYears()
+    {
+        _availableAcademicYears = _terms
+            .Select(t => t.AcademicYear)
+            .Distinct()
+            .OrderByDescending(y => y)
+            .ToList();
+
+        // Default to current academic year if available, otherwise show all
+        if (string.IsNullOrEmpty(_academicYearFilter))
+        {
+            _academicYearFilter = _availableAcademicYears.Contains(_currentAcademicYear)
+                ? _currentAcademicYear
+                : "";
+        }
+    }
+
+    private void ApplyFilters()
+    {
+        var filtered = _terms.AsEnumerable();
+
+        if (!string.IsNullOrEmpty(_statusFilter))
+        {
+            var status = Enum.Parse<TermStatus>(_statusFilter);
+            filtered = filtered.Where(t => t.Status == status);
+        }
+
+        if (!string.IsNullOrEmpty(_academicYearFilter))
+        {
+            filtered = filtered.Where(t => t.AcademicYear == _academicYearFilter);
+        }
+
+        // Sort by start date ascending (earliest first)
+        _filteredTerms = filtered.OrderBy(t => t.StartDate).ToList();
+    }
+
+    private void ApplyFiltersAndRefresh()
+    {
+        ApplyFilters();
+        StateHasChanged();
+    }
+
+    // Add Term Dialog
+    private void ShowAddTermDialog()
+    {
+        _editingTerm = null;
+        _termForm = new TermFormModel
+        {
+            StartDate = DateTime.Today,
+            EndDate = DateTime.Today.AddMonths(4)
+        };
+        _overlapWarnings.Clear();
+        _dialogError = null;
+        _showTermDialog = true;
+    }
+
+    private void ShowEditTermDialog(TermDto term)
+    {
+        _editingTerm = term;
+        _termForm = new TermFormModel
+        {
+            Name = term.Name,
+            StartDate = term.StartDate,
+            EndDate = term.EndDate
+        };
+        _overlapWarnings.Clear();
+        _dialogError = null;
+        _showTermDialog = true;
+    }
+
+    private void CloseTermDialog()
+    {
+        _showTermDialog = false;
+        _editingTerm = null;
+        _dialogError = null;
+    }
+
+    private async Task SaveTermAsync()
+    {
+        _dialogError = null;
+        _saving = true;
+        StateHasChanged();
+
+        try
+        {
+            // Check for overlaps
+            _overlapWarnings = (await TermService.GetOverlappingTermsAsync(
+                _termForm.StartDate,
+                _termForm.EndDate,
+                _editingTerm?.TermId)).ToList();
+
+            TermOperationResult result;
+
+            if (_editingTerm == null)
+            {
+                // Create new term
+                result = await TermService.CreateTermAsync(new CreateTermRequest
+                {
+                    Name = _termForm.Name,
+                    StartDate = _termForm.StartDate,
+                    EndDate = _termForm.EndDate
+                });
+            }
+            else
+            {
+                // Update existing term
+                result = await TermService.UpdateTermAsync(_editingTerm.TermId, new UpdateTermRequest
+                {
+                    Name = _termForm.Name,
+                    StartDate = _termForm.StartDate,
+                    EndDate = _termForm.EndDate
+                });
+            }
+
+            if (result.Success)
+            {
+                _successMessage = _editingTerm == null
+                    ? $"Term '{result.Term!.Name}' created successfully."
+                    : $"Term '{result.Term!.Name}' updated successfully.";
+
+                if (result.Warnings.Any())
+                {
+                    _successMessage += $" Warning: {string.Join(", ", result.Warnings)}";
+                }
+
+                CloseTermDialog();
+                await LoadTermsAsync();
+            }
+            else
+            {
+                _dialogError = string.Join("; ", result.Errors);
+            }
+        }
+        catch (Exception ex)
+        {
+            _dialogError = $"Failed to save term: {ex.Message}";
+            Logger.LogError(ex, "Failed to save term");
+        }
+        finally
+        {
+            _saving = false;
+            StateHasChanged();
+        }
+    }
+
+    // Delete Dialog
+    private void ShowDeleteConfirmation(TermDto term)
+    {
+        _termToDelete = term;
+        _showDeleteDialog = true;
+    }
+
+    private void CloseDeleteDialog()
+    {
+        _showDeleteDialog = false;
+        _termToDelete = null;
+    }
+
+    private async Task DeleteTermAsync()
+    {
+        if (_termToDelete == null) return;
+
+        _saving = true;
+        StateHasChanged();
+
+        try
+        {
+            var result = await TermService.DeleteTermAsync(_termToDelete.TermId);
+            if (result.Success)
+            {
+                _successMessage = $"Term '{_termToDelete.Name}' deleted successfully.";
+                CloseDeleteDialog();
+                await LoadTermsAsync();
+            }
+            else
+            {
+                _operationError = string.Join("; ", result.Errors);
+                CloseDeleteDialog();
+            }
+        }
+        catch (Exception ex)
+        {
+            _operationError = $"Failed to delete term: {ex.Message}";
+            Logger.LogError(ex, "Failed to delete term {TermId}", _termToDelete.TermId);
+            CloseDeleteDialog();
+        }
+        finally
+        {
+            _saving = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RestoreTermAsync(TermDto term)
+    {
+        _saving = true;
+        StateHasChanged();
+
+        try
+        {
+            var result = await TermService.RestoreTermAsync(term.TermId);
+            if (result.Success)
+            {
+                _successMessage = $"Term '{term.Name}' restored successfully.";
+                await LoadTermsAsync();
+            }
+            else
+            {
+                _operationError = string.Join("; ", result.Errors);
+            }
+        }
+        catch (Exception ex)
+        {
+            _operationError = $"Failed to restore term: {ex.Message}";
+            Logger.LogError(ex, "Failed to restore term {TermId}", term.TermId);
+        }
+        finally
+        {
+            _saving = false;
+            StateHasChanged();
+        }
+    }
+
+    // Template Dialog
+    private void ShowTemplateDialog()
+    {
+        _templateStartDate = new DateTime(DateTime.Today.Year, 8, 15);
+        _selectedTemplate = TermTemplate.Semester;
+        GenerateTemplatePreview();
+        _dialogError = null;
+        _showTemplateDialog = true;
+    }
+
+    private void CloseTemplateDialog()
+    {
+        _showTemplateDialog = false;
+        _templatePreview.Clear();
+    }
+
+    private void GenerateTemplatePreview()
+    {
+        _templatePreview = TermService.GenerateFromTemplate(_selectedTemplate, _templateStartDate).ToList();
+    }
+
+    private async Task SaveTemplateTermsAsync()
+    {
+        _dialogError = null;
+        _saving = true;
+        StateHasChanged();
+
+        try
+        {
+            var createdCount = 0;
+            var errors = new List<string>();
+
+            foreach (var suggestion in _templatePreview)
+            {
+                var result = await TermService.CreateTermAsync(new CreateTermRequest
+                {
+                    Name = suggestion.Name,
+                    StartDate = suggestion.StartDate,
+                    EndDate = suggestion.EndDate
+                });
+
+                if (result.Success)
+                {
+                    createdCount++;
+                }
+                else
+                {
+                    errors.Add($"{suggestion.Name}: {string.Join(", ", result.Errors)}");
+                }
+            }
+
+            if (createdCount > 0)
+            {
+                _successMessage = $"Successfully created {createdCount} term(s).";
+            }
+
+            if (errors.Any())
+            {
+                _operationError = $"Some terms failed: {string.Join("; ", errors)}";
+            }
+
+            CloseTemplateDialog();
+            await LoadTermsAsync();
+        }
+        catch (Exception ex)
+        {
+            _dialogError = $"Failed to create terms: {ex.Message}";
+            Logger.LogError(ex, "Failed to create terms from template");
+        }
+        finally
+        {
+            _saving = false;
+            StateHasChanged();
+        }
+    }
+
+    private class TermFormModel
+    {
+        public string Name { get; set; } = string.Empty;
+        public DateTime StartDate { get; set; }
+        public DateTime EndDate { get; set; }
+    }
+}
