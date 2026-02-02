@@ -24,6 +24,7 @@ public class SchoolDbContext : DbContext
     public DbSet<WorkshopSection> WorkshopSections { get; set; } = null!;
     public DbSet<WorkshopSchedule> WorkshopSchedules { get; set; } = null!;
     public DbSet<WorkshopSyncAudit> WorkshopSyncAudits { get; set; } = null!;
+    public DbSet<Term> Terms { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -90,27 +91,26 @@ public class SchoolDbContext : DbContext
         });
 
         // Configure Section entity
-        // Note: Sections no longer have a FK to Courses - CleverCourseId is stored for reference only
-        // Courses are district-level in Clever and not synced to avoid irrelevant data from other schools
         modelBuilder.Entity<Section>(entity =>
         {
+            entity.ToTable("Section");
             entity.HasKey(e => e.SectionId);
             entity.HasIndex(e => e.CleverSectionId).IsUnique();
-            entity.HasIndex(e => e.CleverCourseId);
-            entity.HasIndex(e => e.Subject);
             entity.HasIndex(e => e.DeletedAt);
+            entity.HasIndex(e => e.LastEventReceivedAt);
 
-            entity.Property(e => e.SectionNumber).IsRequired().HasMaxLength(32);
             entity.Property(e => e.CleverSectionId).IsRequired().HasMaxLength(50);
-            entity.Property(e => e.CleverCourseId).HasMaxLength(50);
-            entity.Property(e => e.SectionName).HasMaxLength(64);
-            entity.Property(e => e.Period).HasMaxLength(64);
-            entity.Property(e => e.Subject).HasMaxLength(64);
+            entity.Property(e => e.SectionName).HasMaxLength(100);
+            entity.Property(e => e.Subject).HasMaxLength(100);
+            entity.Property(e => e.Period).HasMaxLength(100);
+            entity.Property(e => e.TermId).HasMaxLength(255);
+            entity.Property(e => e.TermName).HasMaxLength(200);
         });
 
         // Configure TeacherSection entity
         modelBuilder.Entity<TeacherSection>(entity =>
         {
+            entity.ToTable("Section_X_Teacher");
             entity.HasKey(e => e.TeacherSectionId);
             entity.HasIndex(e => e.TeacherId);
             entity.HasIndex(e => e.SectionId);
@@ -223,6 +223,20 @@ public class SchoolDbContext : DbContext
                   .WithMany()
                   .HasForeignKey(e => e.NewWorkshopScheduleId)
                   .OnDelete(DeleteBehavior.NoAction);
+        });
+
+        // Configure Term entity
+        modelBuilder.Entity<Term>(entity =>
+        {
+            entity.HasKey(e => e.TermId);
+            entity.HasIndex(e => e.CleverTermId).IsUnique();
+            entity.HasIndex(e => e.CleverDistrictId);
+            entity.HasIndex(e => e.DeletedAt);
+            entity.HasIndex(e => e.LastSyncedAt);
+
+            entity.Property(e => e.CleverTermId).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.CleverDistrictId).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.Name).HasMaxLength(200);
         });
     }
 }
